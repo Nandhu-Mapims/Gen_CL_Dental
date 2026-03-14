@@ -1,10 +1,10 @@
-# General Operations Checklist - run full stack with Docker
+# Gen_CL_Dental - APDCH Dental General Checklist
 # Usage: docker compose up --build
 #
-# Hostinger VPS port plan (gen_cl uses 5011/8088; ambulance 8085/5010; mrd 3000/5000/27017):
-#   frontend: 8089:80  (app at http://localhost:8089 or via Nginx reverse proxy)
-#   backend:  5012:5000 (API for host Nginx /api proxy)
-#   mongo:    no host port (internal only; backend uses mongodb://mongo:27017/gen_cl_dental)
+# PORTS (must differ from gen_cl which uses 5011/8088):
+#   backend:  5012:5000
+#   frontend: 8089:80
+#   mongo:    internal only (mongodb://mongo:27017/gen_cl_dental)
 
 services:
   mongo:
