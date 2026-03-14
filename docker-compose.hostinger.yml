@@ -1,7 +1,7 @@
 services:
   mongo:
     image: mongo:7
-    container_name: gen_cl_mongo
+    container_name: gen_cl_dental_mongo
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -14,7 +14,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: gen_cl_backend
+    container_name: gen_cl_dental_backend
     environment:
       NODE_ENV: production
       PORT: 5000
@@ -31,7 +31,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: gen_cl_frontend
+    container_name: gen_cl_dental_frontend
     ports:
       - "8088:80"
     depends_on:
