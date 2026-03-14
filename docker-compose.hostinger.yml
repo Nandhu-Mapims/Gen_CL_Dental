@@ -25,7 +25,7 @@ services:
       mongo:
         condition: service_healthy
     ports:
-      - "5011:5000"
+      - "5012:5000"
     restart: unless-stopped
   frontend:
     build:
@@ -33,7 +33,7 @@ services:
       dockerfile: Dockerfile
     container_name: gen_cl_dental_frontend
     ports:
-      - "8088:80"
+      - "8089:80"
     depends_on:
       - backend
     restart: unless-stopped
