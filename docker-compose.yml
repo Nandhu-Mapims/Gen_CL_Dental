@@ -4,7 +4,7 @@
 # Hostinger VPS port plan (no conflict with ambulance 8085/5010, mrd 3000/5000/27017):
 #   frontend: 8088:80  (app at http://localhost:8088 or via Nginx reverse proxy)
 #   backend:  5011:5000 (API for host Nginx /api proxy)
-#   mongo:    no host port (internal only; backend uses mongodb://mongo:27017/gen_cl)
+#   mongo:    no host port (internal only; backend uses mongodb://mongo:27017/gen_cl_dental)
 
 services:
   mongo:
@@ -27,7 +27,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 5000
-      MONGO_URI: mongodb://mongo:27017/gen_cl
+      MONGO_URI: mongodb://mongo:27017/gen_cl_dental
       JWT_SECRET: ${JWT_SECRET:-general-checklist-jwt-secret-min-32-characters-long-for-docker}
       CORS_ORIGIN: ${CORS_ORIGIN:-https://gencl.mapims.edu.in}
     depends_on:

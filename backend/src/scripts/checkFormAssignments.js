@@ -7,7 +7,7 @@ const User = require('../models/User');
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/hospital-audit');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/gen_cl_dental');
     console.log('✅ MongoDB Connected');
   } catch (err) {
     console.error('❌ MongoDB connection error:', err);

@@ -1,6 +1,6 @@
 # MongoDB Migration Script - Import to Hostinger
 # Run backup first from project root or: .\backup-mongodb.ps1 (in this folder)
-# Default BackupPath is project-root/mongodb-backup-full/mrd_audit
+# Default BackupPath is project-root/mongodb-backup-full/gen_cl_dental
 
 param(
     [Parameter(Mandatory=$true)]
@@ -16,7 +16,7 @@ param(
     [string]$MongoPassword,
 
     [Parameter(Mandatory=$false)]
-    [string]$DatabaseName = "mrd_audit",
+    [string]$DatabaseName = "gen_cl_dental",
 
     [Parameter(Mandatory=$false)]
     [string]$BackupPath = "",
@@ -25,7 +25,7 @@ param(
 )
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-if (-not $BackupPath) { $BackupPath = Join-Path $root "mongodb-backup-full\mrd_audit" }
+if (-not $BackupPath) { $BackupPath = Join-Path $root "mongodb-backup-full\gen_cl_dental" }
 
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "MongoDB Data Import to Hostinger" -ForegroundColor Cyan

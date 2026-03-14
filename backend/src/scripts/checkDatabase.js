@@ -4,7 +4,7 @@ dotenv.config();
 
 const checkDatabase = async () => {
   try {
-    const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/mrd_audit';
+    const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/gen_cl_dental';
     console.log('Connecting to:', uri.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')); // Hide password
     
     await mongoose.connect(uri);

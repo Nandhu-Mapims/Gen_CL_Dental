@@ -39,7 +39,7 @@ docker compose down -v
 
 Backend receives:
 
-- `MONGO_URI=mongodb://mongo:27017/gen_cl`
+- `MONGO_URI=mongodb://mongo:27017/gen_cl_dental`
 - `JWT_SECRET` (set in docker-compose.yml)
 - `CORS_ORIGIN=http://localhost` (must match the URL you use to open the app)
 
@@ -65,7 +65,7 @@ For production, use the production override so that:
 
    Edit `.env.production` and set:
 
-   - `MONGO_URI` – e.g. `mongodb://mongo:27017/gen_cl` (or with auth; see example).
+   - `MONGO_URI` – e.g. `mongodb://mongo:27017/gen_cl_dental` (or with auth; see example).
    - `JWT_SECRET` – strong random string (min 32 characters).
    - `CORS_ORIGIN` – public URL of the app, e.g. `https://your-domain.com` (no trailing slash).
 

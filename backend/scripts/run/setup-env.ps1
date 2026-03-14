@@ -18,7 +18,7 @@ if (Test-Path $envPath) {
 # MongoDB Configuration
 MONGO_ROOT_USERNAME=admin
 MONGO_ROOT_PASSWORD=changeme
-MONGO_DATABASE=mrd_audit
+MONGO_DATABASE=gen_cl_dental
 MONGO_HOST=mongodb
 MONGO_PORT=27017
 

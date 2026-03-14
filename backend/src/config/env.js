@@ -26,7 +26,7 @@ if (!JWT_SECRET || String(JWT_SECRET).trim() === '') {
 if (!MONGO_URI || String(MONGO_URI).trim() === '') {
   console.error('❌ CRITICAL: MONGO_URI is not set.');
   console.error('   Set MONGO_URI in Docker environment or in .env for local dev.');
-  console.error('   Example: mongodb://admin:password@mongo:27017/mrd_audit?authSource=admin');
+  console.error('   Example: mongodb://admin:password@mongo:27017/gen_cl_dental?authSource=admin');
   process.exit(1);
 }
 

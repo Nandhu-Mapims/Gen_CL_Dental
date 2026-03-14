@@ -1,11 +1,11 @@
 # Restore dump into a NEW MongoDB database.
-# Usage: .\restore-to-new-db.ps1 [-DumpDir "mongodump-2026-02-17_1100"] [-NewDbName "mrd_audit_new"]
+# Usage: .\restore-to-new-db.ps1 [-DumpDir "mongodump-2026-02-17_1100"] [-NewDbName "gen_cl_dental_new"]
 # DumpDir is relative to project root unless an absolute path is given.
 
 param(
   [string]$DumpDir = "mongodump-2026-02-17_1100",
-  [string]$NewDbName = "mrd_audit_new",
-  [string]$SourceDbInDump = "mrd_audit",
+  [string]$NewDbName = "gen_cl_dental_new",
+  [string]$SourceDbInDump = "gen_cl_dental",
   [string]$MongoHost = $(if ($env:MONGO_HOST) { $env:MONGO_HOST } else { "localhost" }),
   [int]$MongoPort = $(if ($env:MONGO_PORT) { [int]$env:MONGO_PORT } else { 27017 }),
   [string]$MongoUser = $(if ($env:MONGO_USER) { $env:MONGO_USER } elseif ($env:MONGO_ROOT_USERNAME) { $env:MONGO_ROOT_USERNAME } else { "" }),

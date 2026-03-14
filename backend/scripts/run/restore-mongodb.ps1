@@ -6,7 +6,7 @@ param(
   [string]$DumpDir = "mongodump-2026-02-17_1100",
   [string]$MongoHost = $(if ($env:MONGO_HOST) { $env:MONGO_HOST } else { "localhost" }),
   [int]$MongoPort = $(if ($env:MONGO_PORT) { [int]$env:MONGO_PORT } else { 27017 }),
-  [string]$MongoDatabase = $(if ($env:MONGO_DATABASE) { $env:MONGO_DATABASE } else { "mrd_audit" }),
+  [string]$MongoDatabase = $(if ($env:MONGO_DATABASE) { $env:MONGO_DATABASE } else { "gen_cl_dental" }),
   [string]$MongoUser = $(if ($env:MONGO_USER) { $env:MONGO_USER } elseif ($env:MONGO_ROOT_USERNAME) { $env:MONGO_ROOT_USERNAME } else { "" }),
   [string]$MongoPassword = $(if ($env:MONGO_PASSWORD) { $env:MONGO_PASSWORD } elseif ($env:MONGO_ROOT_PASSWORD) { $env:MONGO_ROOT_PASSWORD } else { "" }),
   [string]$MongoAuthDb = $(if ($env:MONGO_AUTH_DB) { $env:MONGO_AUTH_DB } else { "admin" })

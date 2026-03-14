@@ -56,7 +56,7 @@ In the same project, open **Environment** (or **Variables**) and set:
 | `DOMAIN`      | Yes      | Your public host, e.g. **gencl.mapims.edu.in** (no `https://`) |
 | `CORS_ORIGIN` | Yes      | Full origin: **https://gencl.mapims.edu.in** (no trailing slash) |
 | `JWT_SECRET`  | Yes      | Long random string (at least 32 characters). e.g. `openssl rand -base64 32` |
-| `MONGO_URI`   | No       | Default: `mongodb://mongo:27017/gen_cl`. Change only if you use external MongoDB or auth. |
+| `MONGO_URI`   | No       | Default: `mongodb://mongo:27017/gen_cl_dental`. Change only if you use external MongoDB or auth. |
 | `HTTP_PORT`   | No       | Host port for frontend. Default **8082** (avoids 3000, 5000, 8085, 5010, 27017). |
 
 - **DOMAIN** is used in Traefik’s `Host()` rule and must match your DNS.

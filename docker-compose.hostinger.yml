@@ -18,7 +18,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 5000
-      MONGO_URI: mongodb://mongo:27017/gen_cl
+      MONGO_URI: mongodb://mongo:27017/gen_cl_dental
       JWT_SECRET: JWT_SECRET=8d7f4a6e9c2b1d3f5e8a7c4b9f0d2e6a1c3f7b9e4d6a8c2f5b7e9d1a4c6f8b3
       CORS_ORIGIN: ${CORS_ORIGIN:-https://gencl.mapims.edu.in}
     depends_on:
