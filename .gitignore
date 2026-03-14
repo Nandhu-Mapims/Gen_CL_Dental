@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+!backend/package-lock.json
+!frontend/package-lock.json
+yarn.lock
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+
+# Build outputs
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Database
+*.db
+*.sqlite
+
+# MongoDB Backups (large binary files - should not be in repo)
+mongodb-backup/
+mongodb-backup-full/
+*.bson
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# SSL Certificates (sensitive)
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Backend specific
+backend/node_modules/
+backend/.env
+backend/env
+backend/dist/
+
+# Frontend specific
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+

@@ -1,0 +1,50 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Hospital department-wise audit checklist backend (Node.js + Express + MongoDB)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "cd backend && node src/server.js",
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "dev": "cd backend && nodemon src/server.js",
+    "seed": "node src/seed/seed.js",
+    "seed:cs": "node src/seed/seedCSForm.js",
+    "seed:dummy": "node src/scripts/seedDummyData.js",
+    "seed:complete": "node src/scripts/seedCompleteDummyData.js",
+    "seed:multidept-dummy": "node src/scripts/seedMultiDeptDummyData.js",
+    "seed:perfect": "node src/scripts/seedPerfectData.js",
+    "clear-db": "node src/scripts/clearDatabase.js",
+    "clear-data": "node src/scripts/clearDataKeepUsersDepts.js",
+    "clear-departments": "node src/scripts/clearDepartments.js",
+    "clear-patients": "node src/scripts/clearPatientData.js",
+    "clear-submissions-seed": "node src/scripts/clearSubmissionsAndSeed.js",
+    "create-checklists": "node src/scripts/createAllDepartmentChecklists.js",
+    "seed:nabh": "node src/scripts/seedNABHQualityStandards.js",
+    "seed:dummy-forms": "node src/scripts/seedDummyFormsChecklists.js",
+    "seed:missing": "node src/scripts/seedMissingSubmissions.js",
+    "seed:comprehensive": "node src/scripts/seedComprehensiveData.js",
+    "reset-admin": "node src/scripts/resetAdminPassword.js",
+    "reset-all": "node src/scripts/resetAndSeedAll.js",
+    "seed:detailed": "node src/scripts/seedDetailedData.js",
+    "seed:multidept": "node src/scripts/seedMultiDeptSubmissions.js",
+    "seed:ward-unit": "node src/scripts/seedWardUnit.js",
+    "correct-submission-depts": "node src/scripts/correctSubmissionDepartmentsFromForm.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "helmet": "^7.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.0.1",
+    "morgan": "^1.10.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}

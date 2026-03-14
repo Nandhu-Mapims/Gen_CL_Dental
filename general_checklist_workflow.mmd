@@ -1,0 +1,67 @@
+flowchart TD
+    %% Node Styles
+    classDef admin fill:#f9d0c4,stroke:#e06666,stroke-width:2px,color:black,font-weight:bold
+    classDef staff fill:#d0e0e3,stroke:#76a5af,stroke-width:2px,color:black,font-weight:bold
+    classDef reviewer fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:black,font-weight:bold
+    classDef process fill:#f3f3f3,stroke:#999,stroke-width:1px,color:black
+    classDef db fill:#d9ead3,stroke:#93c47d,stroke-width:2px,color:black,shape:cylinder
+
+    %% Roles
+    subgraph Roles [Users & Roles]
+        direction LR
+        Admin((Admin)):::admin
+        Staff((Staff / Auditor)):::staff
+        Reviewer((Reviewer / Quality)):::reviewer
+    end
+
+    %% Setup Phase (Admin)
+    subgraph Setup [1. Architecture & Setup Phase]
+        direction TB
+        CreateDept[Create Department\ne.g., General Medicine]:::process
+        CreateForm[Create FormTemplate\n(Common or Dept-Specific)]:::process
+        CreateItems[Create ChecklistItems\nYES/NO, MULTI_SELECT, TEXT]:::process
+        AssignItems(Assign Items to:\n1. SINGLE Dept\n2. ALL Depts\n3. Specific FormTemplate):::process
+        
+        Admin --> CreateDept
+        Admin --> CreateForm
+        Admin --> CreateItems
+        CreateItems --> AssignItems
+    end
+
+    %% Audit Phase (Staff)
+    subgraph Audit [2. Audit Execution Phase]
+        direction TB
+        SelectContext[Select Department &\nFormTemplate]:::process
+        FetchItems{Fetch Relevant\nChecklist Items}:::process
+        PerformAudit[Answer Checklist]:::process
+        SubmitAudit[Submit Audit]:::process
+
+        Staff --> SelectContext
+        SelectContext --> FetchItems
+        FetchItems -->|Items matched by Dept/Form| PerformAudit
+        PerformAudit --> SubmitAudit
+    end
+
+    %% Data Layer
+    subgraph Database [3. Database Storage]
+        direction TB
+        DB[(AuditSubmission Collection\n1 Doc per ChecklistItem)]:::db
+    end
+
+    %% Post-Audit Phase (Reviewer/Quality)
+    subgraph PostAudit [4. Review & Compliance Phase]
+        direction TB
+        ViewDash[View Analytics &\nCompliance Dashboard]:::process
+        ReviewNOs[Review Non-Compliant\n'NO' Responses]:::process
+        AddCAPA[Add Corrective &\nPreventive Actions]:::process
+
+        Reviewer --> ViewDash
+        ViewDash --> ReviewNOs
+        ReviewNOs --> AddCAPA
+    end
+
+    %% State Transitions
+    AssignItems -.->|Available to Auditor| SelectContext
+    SubmitAudit ==>|Saves Data| DB
+    DB -.->|Populates| ViewDash
+    AddCAPA -.->|Updates Record| DB

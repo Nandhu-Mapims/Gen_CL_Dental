@@ -1,0 +1,52 @@
+# General Operations Checklist - run full stack with Docker
+# Usage: docker compose up --build
+#
+# Hostinger VPS port plan (no conflict with ambulance 8085/5010, mrd 3000/5000/27017):
+#   frontend: 8088:80  (app at http://localhost:8088 or via Nginx reverse proxy)
+#   backend:  5011:5000 (API for host Nginx /api proxy)
+#   mongo:    no host port (internal only; backend uses mongodb://mongo:27017/gen_cl)
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: gen_cl_mongo
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gen_cl_backend
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongo:27017/gen_cl
+      JWT_SECRET: ${JWT_SECRET:-general-checklist-jwt-secret-min-32-characters-long-for-docker}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://gencl.mapims.edu.in}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "5011:5000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gen_cl_frontend
+    ports:
+      - "8088:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

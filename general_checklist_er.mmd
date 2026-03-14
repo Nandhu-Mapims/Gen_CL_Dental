@@ -1,0 +1,47 @@
+erDiagram
+    %% Core Entities
+    DEPARTMENT {
+        ObjectId _id PK
+        string name
+        string code
+    }
+
+    FORM_TEMPLATE {
+        ObjectId _id PK
+        string name
+        string description
+        boolean isCommon
+    }
+
+    CHECKLIST_ITEM {
+        ObjectId _id PK
+        string label
+        string departmentScope "SINGLE | ALL"
+        string responseType "YES_NO | MULTI_SELECT | TEXT"
+        boolean isMandatory
+    }
+
+    USER {
+        ObjectId _id PK
+        string name
+        string email
+        string role "SUPER_ADMIN | STAFF"
+    }
+
+    AUDIT_SUBMISSION {
+        ObjectId _id PK
+        string yesNoNa "YES | NO"
+        string responseValue
+        string corrective
+        string preventive
+        date submittedAt
+    }
+
+    %% Relationships
+    DEPARTMENT ||--o{ FORM_TEMPLATE : "has assigned forms"
+    FORM_TEMPLATE ||--o{ CHECKLIST_ITEM : "contains questions"
+    DEPARTMENT ||--o{ CHECKLIST_ITEM : "has dept-specific questions"
+    USER ||--o{ AUDIT_SUBMISSION : "submits"
+    CHECKLIST_ITEM ||--o{ AUDIT_SUBMISSION : "generates one record per question"
+    DEPARTMENT ||--o{ AUDIT_SUBMISSION : "audits happen in"
+    FORM_TEMPLATE ||--o{ AUDIT_SUBMISSION : "audits triggered for"
