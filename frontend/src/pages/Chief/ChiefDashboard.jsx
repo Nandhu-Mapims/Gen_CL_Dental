@@ -397,12 +397,6 @@ export function ChiefDashboard() {
                                   [sub._id]: { ...prev[sub._id], corrective: val },
                                 }))
                               }}
-                              onBlur={(e) => {
-                                if (isNo) {
-                                  // Prevent losing focus while user is typing corrective action
-                                  e.target.focus()
-                                }
-                              }}
                               placeholder={isNo ? 'Enter corrective action…' : 'Only for NO responses'}
                               disabled={!isNo}
                               rows={2}
@@ -419,12 +413,6 @@ export function ChiefDashboard() {
                                   ...prev,
                                   [sub._id]: { ...prev[sub._id], preventive: val },
                                 }))
-                              }}
-                              onBlur={(e) => {
-                                if (isNo) {
-                                  // Prevent losing focus while user is typing preventive action
-                                  e.target.focus()
-                                }
                               }}
                               placeholder={isNo ? 'Enter preventive action…' : 'Only for NO responses'}
                               disabled={!isNo}
