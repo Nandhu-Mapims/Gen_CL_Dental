@@ -326,6 +326,9 @@ export function DepartmentManagement() {
               placeholder="Sub-domain name"
               value={subName}
               onChange={e => setSubName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.preventDefault()
+              }}
               required
               autoFocus
             />
@@ -334,6 +337,9 @@ export function DepartmentManagement() {
               placeholder="CODE"
               value={subCode}
               onChange={e => setSubCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.preventDefault()
+              }}
               required
             />
             <select
@@ -532,6 +538,9 @@ export function DepartmentManagement() {
                 className="border border-slate-300 rounded-lg w-full px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.preventDefault()
+                }}
                 placeholder="e.g. Housekeeping Department"
                 required
                 autoFocus
@@ -543,6 +552,9 @@ export function DepartmentManagement() {
                 className="border border-slate-300 rounded-lg w-full px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
                 value={newCode}
                 onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.preventDefault()
+                }}
                 placeholder="e.g. HK"
                 required
               />
