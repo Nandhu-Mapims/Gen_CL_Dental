@@ -30,12 +30,6 @@ export function Form() {
   const [loadError, setLoadError] = useState(null)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [submittedContext, setSubmittedContext] = useState(null)
-  const [duplicateExists, setDuplicateExists] = useState(false)
-  const [checkingDuplicate, setCheckingDuplicate] = useState(false)
-  const [duplicateMessage, setDuplicateMessage] = useState('')
-  const [lastDuplicateSubmittedAt, setLastDuplicateSubmittedAt] = useState(null)
-  const [duplicateCountdown, setDuplicateCountdown] = useState('')
-  const [countdownTimer, setCountdownTimer] = useState(null)
   const [showRestoreDraftModal, setShowRestoreDraftModal] = useState(false)
   const [draftToRestore, setDraftToRestore] = useState(null)
   const [lastDraftSavedAt, setLastDraftSavedAt] = useState(null)
@@ -219,26 +213,21 @@ export function Form() {
 
         const depts = await apiClient.get('/departments')
         const deptsActive = (depts || []).filter((d) => d.isActive !== false)
-        const userDept = userDeptId
-          ? deptsActive.find((d) => {
-            const dId = d._id?.toString() || d._id
-            const uId = userDeptId?.toString() || userDeptId
-            return dId === uId
-          }) || null
-          : null
-        setDepartment(userDept)
-        if (userDept) setDepartmentId(userDept._id?.toString() || userDept._id)
-        const formDeptIds = (form.departments || []).map((d) => (d && (d._id || d.id) ? String(d._id || d.id) : String(d)))
-        const departmentOptions = user?.role === 'SUPER_ADMIN' && formDeptIds.length
+        const formDeptIds = (form.departments || []).map((d) =>
+          (d && (d._id || d.id) ? String(d._id || d.id) : String(d))
+        )
+        const departmentOptions = formDeptIds.length
           ? deptsActive.filter((d) => formDeptIds.includes(String(d._id)))
-          : userDept
-            ? [userDept]
-            : deptsActive
+          : deptsActive
+
+        // Auto-select department based primarily on the form template:
+        // - If the form has departments, pick the first one from that list.
+        // - Otherwise, fall back to the first active department (if any).
+        const initialDept = departmentOptions.length > 0 ? departmentOptions[0] : null
+
         setDepartmentsList(departmentOptions)
-        if (departmentOptions.length === 1 && !userDeptId && user?.role === 'SUPER_ADMIN') {
-          setDepartmentId(departmentOptions[0]._id?.toString() || departmentOptions[0]._id)
-          setDepartment(departmentOptions[0])
-        }
+        setDepartment(initialDept)
+        setDepartmentId(initialDept ? initialDept._id?.toString() || initialDept._id : '')
         try {
           const [locations, assets] = await Promise.all([
             apiClient.get('/locations?selectable=true').catch(() => []),
@@ -393,128 +382,7 @@ export function Form() {
     apiClient.get(`/assets?locationId=${locationId}`).then((data) => setAssetsList(Array.isArray(data) ? data : [])).catch(() => setAssetsList([]))
   }, [locationId])
 
-  // Check for duplicate submission (general checklist: by department + form)
-  useEffect(() => {
-    const checkDuplicate = async () => {
-      if (loading) {
-        setDuplicateExists(false)
-        setDuplicateMessage('')
-        setLastDuplicateSubmittedAt(null)
-        setDuplicateCountdown('')
-        setCountdownTimer(null)
-        return
-      }
-
-      let departmentIdForCheck = departmentId || null
-      if (!departmentIdForCheck && user?.department) {
-        const userDeptId = typeof user.department === 'object'
-          ? (user.department.id || user.department._id)
-          : user.department
-        if (formTemplate?.departments?.length) {
-          const formDeptIds = formTemplate.departments.map((d) => (d && (d._id || d.id) ? String(d._id || d.id) : String(d)))
-          const userDeptStr = String(userDeptId)
-          departmentIdForCheck = formDeptIds.includes(userDeptStr) ? userDeptId : (formTemplate.departments[0]._id || formTemplate.departments[0].id || formTemplate.departments[0])
-        } else {
-          departmentIdForCheck = userDeptId
-        }
-      }
-      if (!departmentIdForCheck && user?.role === 'SUPER_ADMIN' && formTemplate?.departments?.length) {
-        departmentIdForCheck = formTemplate.departments[0]._id || formTemplate.departments[0].id || formTemplate.departments[0]
-      }
-
-      if (!departmentIdForCheck) {
-        setDuplicateExists(false)
-        setDuplicateMessage('')
-        setLastDuplicateSubmittedAt(null)
-        setDuplicateCountdown('')
-        setCountdownTimer(null)
-        return
-      }
-
-      setCheckingDuplicate(true)
-      try {
-        const params = new URLSearchParams({
-          departmentId: departmentIdForCheck,
-        })
-        if (formTemplateId) params.set('formTemplateId', formTemplateId)
-        const response = await apiClient.get(`/audits/check-duplicate?${params.toString()}`)
-
-        if (response.exists) {
-          setDuplicateExists(true)
-          const submittedAt = response.submittedAt ? new Date(response.submittedAt) : null
-          setLastDuplicateSubmittedAt(submittedAt)
-          const submittedDate = submittedAt
-            ? submittedAt.toLocaleString('en-GB', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            })
-            : 'previously'
-          const submittedBy = response.submittedBy?.name || 'another user'
-          const baseMsg = response.message || 'For this same checklist, wait 24 hours from your last submission.'
-          setDuplicateMessage(
-            submittedAt
-              ? `${baseMsg} Last submitted by ${submittedBy} on ${submittedDate}.`
-              : baseMsg
-          )
-        } else {
-          setDuplicateExists(false)
-          setDuplicateMessage('')
-          setLastDuplicateSubmittedAt(null)
-          setDuplicateCountdown('')
-          setCountdownTimer(null)
-        }
-      } catch (err) {
-        console.error('Error checking duplicate:', err)
-        setDuplicateExists(false)
-        setDuplicateMessage('')
-        setLastDuplicateSubmittedAt(null)
-        setDuplicateCountdown('')
-        setCountdownTimer(null)
-      } finally {
-        setCheckingDuplicate(false)
-      }
-    }
-
-    // Debounce the check to avoid too many API calls
-    const timeoutId = setTimeout(() => {
-      checkDuplicate()
-    }, 500) // Wait 500ms after user stops typing
-
-    return () => clearTimeout(timeoutId)
-  }, [user, loading, formTemplateId, formTemplate, departmentId])
-
-  // 24h countdown: update every second when duplicate exists; when elapsed, allow submit again
-  useEffect(() => {
-    if (!duplicateExists || !lastDuplicateSubmittedAt) {
-      setDuplicateCountdown('')
-      setCountdownTimer(null)
-      return
-    }
-    const nextAllowedAt = new Date(lastDuplicateSubmittedAt.getTime() + 24 * 60 * 60 * 1000)
-    const update = () => {
-      const now = new Date()
-      const remainingMs = nextAllowedAt.getTime() - now.getTime()
-      if (remainingMs <= 0) {
-        setDuplicateCountdown('You can submit this checklist now.')
-        setCountdownTimer(null)
-        setDuplicateExists(false)
-        setLastDuplicateSubmittedAt(null)
-        setDuplicateMessage('')
-        return
-      }
-      const h = Math.floor(remainingMs / (1000 * 60 * 60))
-      const m = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60))
-      const s = Math.floor((remainingMs % (1000 * 60)) / 1000)
-      setCountdownTimer({ h, m, s })
-      setDuplicateCountdown(`Submit again in ${h}h ${m}m ${s}s`)
-    }
-    update()
-    const interval = setInterval(update, 1000)
-    return () => clearInterval(interval)
-  }, [duplicateExists, lastDuplicateSubmittedAt])
+  // Duplicate submission checks and 24h countdown have been removed – submissions are always allowed
 
   const resetToNewForm = () => {
     setDepartmentId(department?._id?.toString() || department?._id || '')
@@ -969,8 +837,7 @@ export function Form() {
                 <select
                   value={selectedSupervisorId}
                   onChange={(e) => setSelectedSupervisorId(e.target.value)}
-                  className={`w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all ${duplicateExists ? 'border-red-500 bg-red-50' : 'border-slate-300 hover:border-slate-400'}`}
-                  disabled={duplicateExists}
+                  className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
                   required
                 >
                   <option value="">Select supervisor</option>

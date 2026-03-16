@@ -46,31 +46,6 @@ exports.submitAudit = async (req, res) => {
     const auditDate = auditDateStr ? new Date(auditDateStr + 'T00:00:00.000Z') : new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     const auditTime = auditTimeStr || now.getUTCHours().toString().padStart(2, '0') + ':' + now.getUTCMinutes().toString().padStart(2, '0');
 
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const duplicateQuery = {
-      department: departmentForSubmission,
-      submittedBy: userId,
-      submittedAt: { $gte: twentyFourHoursAgo },
-    };
-    if (formTemplateId) duplicateQuery.formTemplate = formTemplateId;
-
-    const existingSubmission = await AuditSubmission.findOne(duplicateQuery)
-      .sort({ submittedAt: -1 })
-      .populate('submittedBy', 'name email')
-      .lean();
-
-    if (existingSubmission) {
-      return res.status(400).json({
-        message: 'For the same checklist form, please wait 24 hours from your last submission. You can submit a different form at any time.',
-        existingSubmission: {
-          submittedAt: existingSubmission.submittedAt,
-          submittedBy: existingSubmission.submittedBy,
-          auditDate: existingSubmission.auditDate,
-          auditTime: existingSubmission.auditTime,
-        }
-      });
-    }
-
     for (const it of items) {
       const val = (it.responseValue || it.yesNoNa || '').toString().toUpperCase();
       if (val === 'NO' && (!it.remarks || !String(it.remarks).trim())) {
@@ -574,41 +549,8 @@ exports.getStats = async (req, res) => {
   }
 };
 
-// Check duplicate: same form+department within 24h by submittedBy
 exports.checkDuplicateSubmission = async (req, res) => {
   try {
-    const { departmentId, formTemplateId } = req.query;
-    const userId = req.user?.sub || req.user?._id || req.user?.id;
-
-    if (!departmentId) {
-      return res.status(400).json({ message: 'Department ID is required' });
-    }
-
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const query = {
-      department: departmentId,
-      submittedAt: { $gte: twentyFourHoursAgo },
-    };
-    if (formTemplateId) query.formTemplate = formTemplateId;
-    if (userId) query.submittedBy = userId;
-
-    const existingSubmission = await AuditSubmission.findOne(query)
-      .sort({ submittedAt: -1 })
-      .populate('submittedBy', 'name email')
-      .select('submittedAt submittedBy auditDate auditTime')
-      .lean();
-
-    if (existingSubmission) {
-      return res.json({
-        exists: true,
-        message: 'For the same checklist form, please wait 24 hours from your last submission.',
-        submittedAt: existingSubmission.submittedAt,
-        submittedBy: existingSubmission.submittedBy,
-        auditDate: existingSubmission.auditDate,
-        auditTime: existingSubmission.auditTime,
-      });
-    }
-
     return res.json({ exists: false });
   } catch (err) {
     console.error('checkDuplicateSubmission error', err);
