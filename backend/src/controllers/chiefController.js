@@ -13,20 +13,20 @@ exports.getSupervisorSessions = async (req, res) => {
     if (!userId) {
       return res.status(401).json({ message: 'Not authenticated' });
     }
-
     const User = require('../models/User');
     const currentUser = await User.findById(userId).lean();
     if (!currentUser) {
       return res.status(404).json({ message: 'User not found' });
     }
+    // Build access filter:
+    // - SUPER_ADMIN: can see all submissions (no restriction)
+    // - Others (supervisors): see submissions explicitly assigned to them, regardless of department
+    const accessFilter =
+      currentUser.role === 'SUPER_ADMIN'
+        ? {}
+        : { assignedToUserId: userId };
 
-    // Build department filter — SUPER_ADMIN sees all, others see their own department
-    const deptFilter = {};
-    if (currentUser.role !== 'SUPER_ADMIN' && currentUser.department) {
-      deptFilter.department = currentUser.department;
-    }
-
-    const submissions = await AuditSubmission.find(deptFilter)
+    const submissions = await AuditSubmission.find(accessFilter)
       .populate('submittedBy', 'name email designation')
       .populate('department', 'name code')
       .populate('formTemplate', 'name')
