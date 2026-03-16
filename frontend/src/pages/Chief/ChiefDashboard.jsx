@@ -387,30 +387,22 @@ export function ChiefDashboard() {
                           <td className="px-4 py-3 text-xs text-slate-600">{sub.remarks || '—'}</td>
                           <td className="px-4 py-3">
                             <textarea
-                              className={`w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 ${isNo ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white text-slate-400 cursor-not-allowed'}`}
+                              className="w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 border-amber-300 bg-amber-50"
                               value={actions[sub._id]?.corrective ?? sub.corrective ?? ''}
                               onChange={(e) => {
-                                console.log('onChange', e.target.value)
                                 const val = e.target.value
                                 setActions((prev) => ({
                                   ...prev,
                                   [sub._id]: { ...prev[sub._id], corrective: val },
                                 }))
                               }}
-                              onBlur={(e) => {
-                                // Keep focus while typing so user doesn't need to click again
-                                if (isNo) {
-                                  e.target.focus()
-                                }
-                              }}
-                              placeholder={isNo ? 'Enter corrective action…' : 'Only for NO responses'}
-                              disabled={!isNo}
+                              placeholder="Enter corrective action…"
                               rows={2}
                             />
                           </td>
                           <td className="px-4 py-3">
                             <textarea
-                              className={`w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 ${isNo ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white text-slate-400 cursor-not-allowed'}`}
+                              className="w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 border-amber-300 bg-amber-50"
                               value={actions[sub._id]?.preventive ?? sub.preventive ?? ''}
                               onChange={(e) => {
                                 const val = e.target.value
@@ -419,8 +411,7 @@ export function ChiefDashboard() {
                                   [sub._id]: { ...prev[sub._id], preventive: val },
                                 }))
                               }}
-                              placeholder={isNo ? 'Enter preventive action…' : 'Only for NO responses'}
-                              disabled={!isNo}
+                              placeholder="Enter preventive action…"
                               rows={2}
                             />
                           </td>
