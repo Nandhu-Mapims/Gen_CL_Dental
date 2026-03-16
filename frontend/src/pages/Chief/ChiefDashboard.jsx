@@ -130,8 +130,187 @@ export function ChiefDashboard() {
       ? Math.round(sessions.reduce((sum, s) => sum + s.complianceRate, 0) / sessions.length)
       : 0
 
-  // ─── Session list view ──────────────────────────────────────────────────────
-  const SessionListView = () => (
+  // ─── Loading / error ────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-maroon-200 border-t-maroon-600 mb-3" />
+          <p className="text-slate-600 text-sm">Loading audit sessions…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
+          <h1 className="text-2xl font-semibold text-slate-900">Supervisor Dashboard</h1>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+          <p className="text-red-700 font-medium">{error}</p>
+          <button
+            onClick={() => { setError(''); loadSessions() }}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Session detail / review view (inlined to preserve textarea focus) ──────
+  if (selectedSession) {
+    return (
+      <div className="space-y-4">
+        {/* Back + header */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
+          <button
+            onClick={closeSession}
+            className="text-sm font-medium text-maroon-600 hover:text-maroon-800 mb-2 inline-block"
+          >
+            ← Back to Sessions
+          </button>
+          <h2 className="text-xl font-semibold text-slate-900">
+            Review: {selectedSession?.formTemplate?.name || 'Audit Session'}
+          </h2>
+          <div className="flex flex-wrap gap-4 mt-2 text-sm text-slate-600">
+            <span>📅 {selectedSession?.date}</span>
+            <span>👤 {selectedSession?.submittedBy?.name}</span>
+            <span>🏢 {selectedSession?.department?.name}</span>
+            {selectedSession?.location && <span>📍 {selectedSession.location}</span>}
+            {selectedSession?.shift && <span>🕐 {selectedSession.shift}</span>}
+          </div>
+        </div>
+
+        {showSaveSuccessPopup && (
+          <div className="fixed top-6 right-6 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium animate-pulse">
+            ✓ Action saved successfully
+          </div>
+        )}
+
+        {saveError && (
+          <div className="bg-red-50 border border-red-300 text-red-800 rounded-lg px-4 py-3 text-sm">
+            {saveError}
+          </div>
+        )}
+
+        {loadingSubmissions ? (
+          <div className="bg-white rounded-xl p-8 text-center text-slate-500">Loading checklist...</div>
+        ) : sessionSubmissions.length === 0 ? (
+          <div className="bg-white rounded-xl p-8 text-center text-slate-500">No checklist items found for this session.</div>
+        ) : (
+          Object.entries(itemsBySection).sort().map(([sectionName, items]) => (
+            <div key={sectionName} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="bg-slate-50 border-b border-slate-200 px-4 py-3">
+                <h3 className="font-semibold text-sm text-slate-900">{sectionName}</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[700px]">
+                  <thead className="bg-slate-100 border-b border-slate-200">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-700 w-8">#</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-700 w-[35%]">Checklist Item</th>
+                      <th className="text-center px-4 py-2 font-semibold text-slate-700 w-20">Response</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-700">Remarks</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-700">Corrective Action</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-700">Preventive Action</th>
+                      <th className="text-left px-4 py-2 font-semibold text-slate-700 w-24">Save</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {items
+                      .sort((a, b) => (a.checklistItemId?.order ?? 0) - (b.checklistItemId?.order ?? 0))
+                      .map((sub, idx) => {
+                        const resp = (sub.responseValue || sub.yesNoNa || '').toString().trim().toUpperCase()
+                        const isNo = resp === 'NO'
+                        const alreadySaved = !!(sub.corrective || sub.preventive)
+                        return (
+                          <tr key={sub._id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'} ${isNo ? 'border-l-4 border-l-amber-400' : ''}`}>
+                            <td className="px-4 py-3 text-slate-500 font-medium">{idx + 1}</td>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-slate-800 text-xs">{sub.checklistItemId?.label || '—'}</div>
+                              {sub.checklistItemId?.isMandatory && (
+                                <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded">Mandatory</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${resp === 'YES' ? 'bg-emerald-100 text-emerald-700' : resp === 'NO' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                                {resp || '—'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-600">{sub.remarks || '—'}</td>
+                            <td className="px-4 py-3">
+                              <textarea
+                                className={`w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 ${isNo ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white text-slate-400 cursor-not-allowed'}`}
+                                value={actions[sub._id]?.corrective ?? sub.corrective ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setActions((prev) => ({
+                                    ...prev,
+                                    [sub._id]: { ...prev[sub._id], corrective: val },
+                                  }))
+                                }}
+                                placeholder={isNo ? 'Enter corrective action…' : 'Only for NO responses'}
+                                disabled={!isNo}
+                                rows={2}
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <textarea
+                                className={`w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 ${isNo ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white text-slate-400 cursor-not-allowed'}`}
+                                value={actions[sub._id]?.preventive ?? sub.preventive ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setActions((prev) => ({
+                                    ...prev,
+                                    [sub._id]: { ...prev[sub._id], preventive: val },
+                                  }))
+                                }}
+                                placeholder={isNo ? 'Enter preventive action…' : 'Only for NO responses'}
+                                disabled={!isNo}
+                                rows={2}
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              {isNo ? (
+                                <button
+                                  onClick={() => handleSaveAction(sub._id)}
+                                  disabled={!!savingActions[sub._id]}
+                                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${alreadySaved ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-300' : 'bg-maroon-600 text-white hover:bg-maroon-700'} disabled:opacity-50`}
+                                >
+                                  {savingActions[sub._id] ? '…' : alreadySaved ? '✓ Update' : 'Save'}
+                                </button>
+                              ) : (
+                                <span className="text-slate-400 text-xs">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))
+        )}
+
+        <div className="flex gap-3">
+          <button
+            onClick={closeSession}
+            className="px-5 py-2.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg text-sm transition-colors"
+          >
+            ← Back to Sessions
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Session list view (inlined to preserve filter focus) ───────────────────
+  return (
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4 sm:py-5">
@@ -211,7 +390,7 @@ export function ChiefDashboard() {
       {/* Session table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {filteredSessions.length === 0 ? (
-            <div className="p-12 text-center text-slate-500">
+          <div className="p-12 text-center text-slate-500">
             <div className="text-4xl mb-3">📋</div>
             <p className="font-medium text-slate-700">No audit sessions found</p>
             <p className="text-sm mt-1">
@@ -304,181 +483,4 @@ export function ChiefDashboard() {
       )}
     </div>
   )
-
-  // ─── Session detail / review modal ─────────────────────────────────────────
-  const SessionDetailView = () => (
-    <div className="space-y-4">
-      {/* Back + header */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
-        <button
-          onClick={closeSession}
-          className="text-sm font-medium text-maroon-600 hover:text-maroon-800 mb-2 inline-block"
-        >
-          ← Back to Sessions
-        </button>
-        <h2 className="text-xl font-semibold text-slate-900">
-          Review: {selectedSession?.formTemplate?.name || 'Audit Session'}
-        </h2>
-        <div className="flex flex-wrap gap-4 mt-2 text-sm text-slate-600">
-          <span>📅 {selectedSession?.date}</span>
-          <span>👤 {selectedSession?.submittedBy?.name}</span>
-          <span>🏢 {selectedSession?.department?.name}</span>
-          {selectedSession?.location && <span>📍 {selectedSession.location}</span>}
-          {selectedSession?.shift && <span>🕐 {selectedSession.shift}</span>}
-        </div>
-      </div>
-
-      {showSaveSuccessPopup && (
-        <div className="fixed top-6 right-6 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium animate-pulse">
-          ✓ Action saved successfully
-        </div>
-      )}
-
-      {saveError && (
-        <div className="bg-red-50 border border-red-300 text-red-800 rounded-lg px-4 py-3 text-sm">
-          {saveError}
-        </div>
-      )}
-
-      {loadingSubmissions ? (
-        <div className="bg-white rounded-xl p-8 text-center text-slate-500">Loading checklist...</div>
-      ) : sessionSubmissions.length === 0 ? (
-        <div className="bg-white rounded-xl p-8 text-center text-slate-500">No checklist items found for this session.</div>
-      ) : (
-        Object.entries(itemsBySection).sort().map(([sectionName, items]) => (
-          <div key={sectionName} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="bg-slate-50 border-b border-slate-200 px-4 py-3">
-              <h3 className="font-semibold text-sm text-slate-900">{sectionName}</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[700px]">
-                <thead className="bg-slate-100 border-b border-slate-200">
-                  <tr>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700 w-8">#</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700 w-[35%]">Checklist Item</th>
-                    <th className="text-center px-4 py-2 font-semibold text-slate-700 w-20">Response</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700">Remarks</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700">Corrective Action</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700">Preventive Action</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700 w-24">Save</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {items
-                    .sort((a, b) => (a.checklistItemId?.order ?? 0) - (b.checklistItemId?.order ?? 0))
-                    .map((sub, idx) => {
-                      const resp = (sub.responseValue || sub.yesNoNa || '').toString().trim().toUpperCase()
-                      const isNo = resp === 'NO'
-                      const alreadySaved = !!(sub.corrective || sub.preventive)
-                      return (
-                        <tr key={sub._id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'} ${isNo ? 'border-l-4 border-l-amber-400' : ''}`}>
-                          <td className="px-4 py-3 text-slate-500 font-medium">{idx + 1}</td>
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-slate-800 text-xs">{sub.checklistItemId?.label || '—'}</div>
-                            {sub.checklistItemId?.isMandatory && (
-                              <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded">Mandatory</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${resp === 'YES' ? 'bg-emerald-100 text-emerald-700' : resp === 'NO' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
-                              {resp || '—'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-600">{sub.remarks || '—'}</td>
-                          <td className="px-4 py-3">
-                            <textarea
-                              className="w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 border-amber-300 bg-amber-50"
-                              value={actions[sub._id]?.corrective ?? sub.corrective ?? ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                setActions((prev) => ({
-                                  ...prev,
-                                  [sub._id]: { ...prev[sub._id], corrective: val },
-                                }))
-                              }}
-                              placeholder="Enter corrective action…"
-                              rows={2}
-                            />
-                          </td>
-                          <td className="px-4 py-3">
-                            <textarea
-                              className="w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 border-amber-300 bg-amber-50"
-                              value={actions[sub._id]?.preventive ?? sub.preventive ?? ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                setActions((prev) => ({
-                                  ...prev,
-                                  [sub._id]: { ...prev[sub._id], preventive: val },
-                                }))
-                              }}
-                              placeholder="Enter preventive action…"
-                              rows={2}
-                            />
-                          </td>
-                          <td className="px-4 py-3">
-                            {isNo ? (
-                              <button
-                                onClick={() => handleSaveAction(sub._id)}
-                                disabled={!!savingActions[sub._id]}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${alreadySaved ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-300' : 'bg-maroon-600 text-white hover:bg-maroon-700'} disabled:opacity-50`}
-                              >
-                                {savingActions[sub._id] ? '…' : alreadySaved ? '✓ Update' : 'Save'}
-                              </button>
-                            ) : (
-                              <span className="text-slate-400 text-xs">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))
-      )}
-
-      <div className="flex gap-3">
-        <button
-          onClick={closeSession}
-          className="px-5 py-2.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg text-sm transition-colors"
-        >
-          ← Back to Sessions
-        </button>
-      </div>
-    </div>
-  )
-
-  // ─── Loading / error ────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-maroon-200 border-t-maroon-600 mb-3" />
-          <p className="text-slate-600 text-sm">Loading audit sessions…</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="space-y-4">
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
-          <h1 className="text-2xl font-semibold text-slate-900">Supervisor Dashboard</h1>
-        </div>
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-          <p className="text-red-700 font-medium">{error}</p>
-          <button
-            onClick={() => { setError(''); loadSessions() }}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return selectedSession ? <SessionDetailView /> : <SessionListView />
 }
