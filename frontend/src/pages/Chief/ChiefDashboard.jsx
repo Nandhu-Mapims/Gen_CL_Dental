@@ -390,6 +390,7 @@ export function ChiefDashboard() {
                               className={`w-full border rounded px-2 py-1.5 text-xs resize-y min-h-[56px] focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 ${isNo ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white text-slate-400 cursor-not-allowed'}`}
                               value={actions[sub._id]?.corrective ?? sub.corrective ?? ''}
                               onChange={(e) => {
+                                console.log('onChange', e.target.value)
                                 const val = e.target.value
                                 setActions((prev) => ({
                                   ...prev,
