@@ -701,51 +701,7 @@ export function Form() {
               Operational context <span className="text-xs font-normal text-slate-600 ml-2">(Department/Service, Location, Supervisor)</span>
             </h3>
           </div>
-          <div className="px-4 pt-3">
-            {(duplicateExists || duplicateCountdown || countdownTimer) && (duplicateMessage || duplicateCountdown || countdownTimer) && (
-              <div className="mb-4 p-3 bg-red-50 border-2 border-red-300 rounded-md text-xs text-red-800">
-                <div className="font-bold mb-1 flex items-center gap-1">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                  {duplicateExists ? 'Same checklist: wait 24 hours' : 'You can submit now'}
-                </div>
-                {duplicateMessage && <div className="leading-relaxed">{duplicateMessage}</div>}
-                {countdownTimer && (
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="text-red-700 font-medium">Time remaining:</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="inline-flex flex-col items-center bg-red-200 rounded-lg px-3 py-1.5 min-w-[3rem]">
-                        <span className="text-lg font-bold font-mono tabular-nums text-red-900">{String(countdownTimer.h).padStart(2, '0')}</span>
-                        <span className="text-[10px] uppercase text-red-700 font-semibold">hrs</span>
-                      </span>
-                      <span className="text-red-600 font-bold">:</span>
-                      <span className="inline-flex flex-col items-center bg-red-200 rounded-lg px-3 py-1.5 min-w-[3rem]">
-                        <span className="text-lg font-bold font-mono tabular-nums text-red-900">{String(countdownTimer.m).padStart(2, '0')}</span>
-                        <span className="text-[10px] uppercase text-red-700 font-semibold">min</span>
-                      </span>
-                      <span className="text-red-600 font-bold">:</span>
-                      <span className="inline-flex flex-col items-center bg-red-200 rounded-lg px-3 py-1.5 min-w-[3rem]">
-                        <span className="text-lg font-bold font-mono tabular-nums text-red-900">{String(countdownTimer.s).padStart(2, '0')}</span>
-                        <span className="text-[10px] uppercase text-red-700 font-semibold">sec</span>
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {duplicateCountdown && !countdownTimer && (
-                  <div className="mt-2 font-mono font-semibold text-red-900 bg-red-100/80 rounded px-2 py-1 inline-block">
-                    {duplicateCountdown}
-                  </div>
-                )}
-              </div>
-            )}
-            {checkingDuplicate && (
-              <div className="mb-4 text-xs text-maroon-600 flex items-center gap-2">
-                <span className="inline-block animate-spin rounded-full h-3 w-3 border-2 border-maroon-600 border-t-transparent" />
-                Checking for existing submission...
-              </div>
-            )}
-          </div>
+          <div className="px-4 pt-3" />
           <div className="p-4 pt-0">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="space-y-1.5">
@@ -758,8 +714,7 @@ export function Form() {
                     const d = departmentsList.find((x) => (x._id?.toString() || x._id) === id)
                     setDepartment(d || null)
                   }}
-                  className={`w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all ${duplicateExists ? 'border-red-500 bg-red-50' : 'border-slate-300 hover:border-slate-400'}`}
-                  disabled={duplicateExists}
+                  className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
                   required
                 >
                   <option value="">Select department</option>
@@ -781,8 +736,7 @@ export function Form() {
                     setAssetId('')
                     setAsset('')
                   }}
-                  className={`w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all ${duplicateExists ? 'border-red-500 bg-red-50' : 'border-slate-300 hover:border-slate-400'}`}
-                  disabled={duplicateExists}
+                  className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
                   required
                 >
                   <option value="">Select type</option>
@@ -805,8 +759,8 @@ export function Form() {
                     setAssetId('')
                     setAsset('')
                   }}
-                  className={`w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all ${duplicateExists ? 'border-red-500 bg-red-50' : 'border-slate-300 hover:border-slate-400'}`}
-                  disabled={duplicateExists || !locationType}
+                  className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
+                  disabled={!locationType}
                   required
                 >
                   <option value="">{locationType ? 'Select location' : 'Select type first'}</option>
@@ -1005,20 +959,13 @@ export function Form() {
             </button>
             <button
               type="submit"
-              disabled={submitting || duplicateExists || checkingDuplicate}
+              disabled={submitting}
               className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white font-semibold px-8 py-2.5 rounded-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-sm text-sm flex items-center gap-2"
             >
               {submitting ? (
                 <>
                   <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
                   Submitting...
-                </>
-              ) : duplicateExists ? (
-                <>
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                  Duplicate - Cannot Submit
                 </>
               ) : (
                 <>
