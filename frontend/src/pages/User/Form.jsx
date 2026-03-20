@@ -14,6 +14,7 @@ export function Form() {
   const [departmentsList, setDepartmentsList] = useState([])
   const [items, setItems] = useState([])
   const [answers, setAnswers] = useState({})
+  const [selectedSections, setSelectedSections] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState('')
   const [locationType, setLocationType] = useState('')
@@ -50,6 +51,7 @@ export function Form() {
       location,
       asset,
       answers,
+      selectedSections,
       formTemplateId,
       formName: formTemplate?.name,
       savedAt: new Date().toISOString(),
@@ -60,7 +62,7 @@ export function Form() {
     } catch (e) {
       console.warn('Failed to save draft:', e)
     }
-  }, [getDraftKey, departmentId, locationType, locationId, assetId, location, asset, answers, formTemplateId, formTemplate?.name])
+  }, [getDraftKey, departmentId, locationType, locationId, assetId, location, asset, answers, selectedSections, formTemplateId, formTemplate?.name])
 
   const availableLocationTypes = useMemo(() => {
     const TYPE_ORDER = ['ZONE', 'FLOOR', 'WARD', 'UNIT', 'ROOM', 'OTHER']
@@ -96,6 +98,7 @@ export function Form() {
     assetId ||
     location.trim() ||
     asset.trim() ||
+    selectedSections.length !== new Set(items.map((it) => it.section || 'Other')).size ||
     Object.values(answers).some(
       (a) =>
         (a?.yesNoNa && String(a.yesNoNa).trim()) ||
@@ -260,6 +263,8 @@ export function Form() {
             }
 
             setItems(checklist || [])
+            const sectionsFromItems = Array.from(new Set((checklist || []).map((it) => it.section || 'Other')))
+            setSelectedSections(sectionsFromItems)
 
             // Initialize answers - all empty, no defaults
             const init = {}
@@ -310,6 +315,12 @@ export function Form() {
                         : { yesNoNa: '', responseValue: '', remarks: '' }
                     })
                   setAnswers(merged)
+                  const validSections = Array.from(new Set((checklist || []).map((it) => it.section || 'Other')))
+                  if (Array.isArray(draft.selectedSections) && draft.selectedSections.length > 0) {
+                    setSelectedSections(draft.selectedSections.filter((s) => validSections.includes(s)))
+                  } else {
+                    setSelectedSections(validSections)
+                  }
                 }
               }
             } catch (err) {
@@ -393,6 +404,7 @@ export function Form() {
     setAsset('')
     setSelectedSupervisorId('')
     setMessage('')
+    setSelectedSections(Array.from(new Set(items.map((it) => it.section || 'Other'))))
     clearDraft()
     const init = {}
     items.forEach((it) => {
@@ -412,6 +424,23 @@ export function Form() {
     acc[section].push(item)
     return acc
   }, {})
+  const allSectionNames = useMemo(() => Object.keys(itemsBySection).sort(), [itemsBySection])
+  const selectedSectionSet = useMemo(() => new Set(selectedSections), [selectedSections])
+  const selectedItems = useMemo(
+    () => items.filter((it) => selectedSectionSet.has(it.section || 'Other')),
+    [items, selectedSectionSet]
+  )
+  const allSectionsSelected = allSectionNames.length > 0 && selectedSections.length === allSectionNames.length
+
+  const toggleSection = (sectionName) => {
+    setSelectedSections((prev) =>
+      prev.includes(sectionName) ? prev.filter((s) => s !== sectionName) : [...prev, sectionName]
+    )
+  }
+
+  const toggleAllSections = () => {
+    setSelectedSections((prev) => (prev.length === allSectionNames.length ? [] : allSectionNames))
+  }
 
   const updateAnswer = (id, field, value) => {
     setAnswers((prev) => ({
@@ -456,7 +485,12 @@ export function Form() {
     }
 
     // Validate responses (YES_NO can be stored in responseValue or yesNoNa)
-    for (const it of items) {
+    if (selectedItems.length === 0) {
+      setMessage('Please select at least one section to submit.')
+      return
+    }
+
+    for (const it of selectedItems) {
       const answer = answers[it._id]
       const responseType = it.responseType || 'YES_NO'
       const value = (answer?.responseValue || answer?.yesNoNa || '').toString().trim()
@@ -502,7 +536,7 @@ export function Form() {
         locationId: locationId || undefined,
         location: location.trim() || '',
         assignedToUserId: selectedSupervisorId || undefined,
-        items: items.map((it) => ({
+        items: selectedItems.map((it) => ({
           checklistItemId: it._id,
           ...answers[it._id],
         })),
@@ -803,7 +837,37 @@ export function Form() {
         </div>
 
         {/* Checklist Sections */}
-        {Object.keys(itemsBySection).length === 0 ? (
+        {allSectionNames.length > 0 && (
+          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-maroon-200/50 p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h3 className="text-sm font-semibold text-slate-900">Section selection</h3>
+              <button
+                type="button"
+                onClick={toggleAllSections}
+                className="text-xs font-medium px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700"
+              >
+                {allSectionsSelected ? 'Deselect all' : 'Select all'}
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {allSectionNames.map((sectionName) => {
+                const checked = selectedSectionSet.has(sectionName)
+                return (
+                  <label key={sectionName} className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs cursor-pointer ${checked ? 'bg-maroon-50 border-maroon-300 text-maroon-700' : 'bg-white border-slate-300 text-slate-700'}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSection(sectionName)}
+                      className="w-3.5 h-3.5"
+                    />
+                    <span>{sectionName}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        )}
+        {allSectionNames.length === 0 ? (
           <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-maroon-200/50 p-6 text-center">
             <div className="text-slate-400 mb-2">
               <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -813,8 +877,8 @@ export function Form() {
             <p className="text-sm text-slate-500 font-medium">No checklist items available for this form.</p>
           </div>
         ) : (
-          Object.keys(itemsBySection)
-            .sort()
+          allSectionNames
+            .filter((sectionName) => selectedSectionSet.has(sectionName))
             .map((sectionName) => (
               <div key={sectionName} className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-maroon-200/50 overflow-hidden">
                 {/* Section Header */}
@@ -944,7 +1008,7 @@ export function Form() {
         )}
 
         {/* Submit Button */}
-        {Object.keys(itemsBySection).length > 0 && (
+        {allSectionNames.length > 0 && (
           <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-maroon-200/50 p-4 flex justify-end gap-3">
             <button
               type="button"
