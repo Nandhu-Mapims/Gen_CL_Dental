@@ -1,6 +1,19 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { apiClient } from '../../api/client'
 
+function supervisorSignaturePublicUrl(storedPath) {
+  if (!storedPath || typeof storedPath !== 'string') return ''
+  if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) return storedPath
+  const p = storedPath.startsWith('/') ? storedPath : `/${storedPath}`
+  const apiBase = import.meta.env?.VITE_API_URL
+  if (apiBase) {
+    const origin = String(apiBase).replace(/\/api\/?$/i, '')
+    return `${origin}${p}`
+  }
+  if (typeof window !== 'undefined') return `${window.location.origin}${p}`
+  return p
+}
+
 const ROLE_OPTIONS = [
   { value: '', label: 'All roles' },
   { value: 'SUPER_ADMIN', label: 'Super Admin' },
@@ -27,6 +40,10 @@ export function UserManagement() {
   const [departmentFilter, setDepartmentFilter] = useState('')
   const [departmentDropdownOpen, setDepartmentDropdownOpen] = useState(false)
   const departmentDropdownRef = useRef(null)
+  const [signatureFile, setSignatureFile] = useState(null)
+  const [signaturePreviewLocal, setSignaturePreviewLocal] = useState(null)
+  const [signatureError, setSignatureError] = useState('')
+  const [signatureUploading, setSignatureUploading] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -48,6 +65,16 @@ export function UserManagement() {
   const isPasswordStrong = passwordRules.every((rule) => rule.valid)
   const showPasswordRules = isPasswordFocused && !isPasswordStrong
 
+
+  useEffect(() => {
+    if (!signatureFile) {
+      setSignaturePreviewLocal(null)
+      return undefined
+    }
+    const u = URL.createObjectURL(signatureFile)
+    setSignaturePreviewLocal(u)
+    return () => URL.revokeObjectURL(u)
+  }, [signatureFile])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -130,6 +157,7 @@ export function UserManagement() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setSignatureError('')
 
     if ((!editingUser || formData.password) && !isPasswordStrong) {
       alert('Password does not match required pattern. Please satisfy all password rules.')
@@ -137,6 +165,7 @@ export function UserManagement() {
     }
 
     try {
+      let savedUserId = editingUser?._id
       if (editingUser) {
         const updateData = { ...formData }
         if (!updateData.password) {
@@ -144,10 +173,29 @@ export function UserManagement() {
         }
         await apiClient.put(`/auth/users/${editingUser._id}`, updateData)
       } else {
-        await apiClient.post('/auth/users', formData)
+        const created = await apiClient.post('/auth/users', formData)
+        savedUserId = created?.id ?? created?._id ?? null
       }
+
+      if (formData.role === 'SUPERVISOR' && signatureFile && savedUserId) {
+        setSignatureUploading(true)
+        try {
+          const fd = new FormData()
+          fd.append('signature', signatureFile)
+          await apiClient.postFormData(`/auth/users/${savedUserId}/signature`, fd)
+        } catch (sigErr) {
+          setSignatureError(sigErr.response?.data?.message || sigErr.message || 'Signature upload failed')
+          setSignatureUploading(false)
+          loadUsers()
+          return
+        } finally {
+          setSignatureUploading(false)
+        }
+      }
+
       setShowForm(false)
       setEditingUser(null)
+      setSignatureFile(null)
       setFormData({
         name: '',
         email: '',
@@ -160,12 +208,26 @@ export function UserManagement() {
       loadUsers()
     } catch (err) {
       alert(err.response?.data?.message || 'Error saving user')
-      console.error(err)
+    }
+  }
+
+  const handleRemoveStoredSignature = async () => {
+    if (!editingUser?._id) return
+    if (!window.confirm('Remove the saved signature image for this supervisor?')) return
+    setSignatureError('')
+    try {
+      const updated = await apiClient.delete(`/auth/users/${editingUser._id}/signature`)
+      setEditingUser((prev) => (prev ? { ...prev, ...updated } : prev))
+      await loadUsers()
+    } catch (err) {
+      setSignatureError(err.response?.data?.message || err.message || 'Failed to remove signature')
     }
   }
 
   const handleEdit = (user) => {
     setEditingUser(user)
+    setSignatureFile(null)
+    setSignatureError('')
     setAddingDesignation(false)
     setNewDesignation('')
     setDesignationError('')
@@ -223,6 +285,8 @@ export function UserManagement() {
           onClick={() => {
             setShowForm(true)
             setEditingUser(null)
+            setSignatureFile(null)
+            setSignatureError('')
             setAddingDesignation(false)
             setNewDesignation('')
             setDesignationError('')
@@ -487,6 +551,72 @@ export function UserManagement() {
               </div>
             )}
 
+            {formData.role === 'SUPERVISOR' && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-800 mb-1">
+                    Supervisor signature
+                  </label>
+                  <p className="text-xs text-slate-600 mb-2">
+                    Upload a PNG or JPEG (max 2 MB). Shown on checklist audit reports for submissions assigned to this supervisor.
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                    className="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-maroon-600 file:text-white hover:file:bg-maroon-700"
+                    onChange={(ev) => {
+                      const f = ev.target.files?.[0]
+                      setSignatureError('')
+                      if (!f) {
+                        setSignatureFile(null)
+                        return
+                      }
+                      const okType = /^image\/(png|jpeg)$/i.test(f.type)
+                      if (!okType) {
+                        setSignatureError('Please choose a PNG or JPEG image.')
+                        setSignatureFile(null)
+                        ev.target.value = ''
+                        return
+                      }
+                      if (f.size > 2 * 1024 * 1024) {
+                        setSignatureError('Image must be 2 MB or smaller.')
+                        setSignatureFile(null)
+                        ev.target.value = ''
+                        return
+                      }
+                      setSignatureFile(f)
+                    }}
+                  />
+                </div>
+                {signatureError && (
+                  <p className="text-sm text-red-600">{signatureError}</p>
+                )}
+                {(signaturePreviewLocal || (editingUser?.signatureImage && !signatureFile)) && (
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-slate-600 mb-1">Preview</p>
+                      <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                        <img
+                          src={signaturePreviewLocal ?? supervisorSignaturePublicUrl(editingUser?.signatureImage)}
+                          alt="Signature preview"
+                          className="max-h-24 max-w-[220px] object-contain"
+                        />
+                      </div>
+                    </div>
+                    {editingUser?.signatureImage && !signatureFile && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveStoredSignature}
+                        className="text-sm text-red-600 hover:text-red-800 font-medium underline-offset-2 hover:underline"
+                      >
+                        Remove saved signature
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -503,15 +633,18 @@ export function UserManagement() {
             <div className="flex gap-3 pt-4">
               <button
                 type="submit"
-                className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white px-6 py-2 rounded-lg shadow-sm transition-colors text-sm font-medium"
+                disabled={signatureUploading}
+                className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white px-6 py-2 rounded-lg shadow-sm transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {editingUser ? 'Update' : 'Create'} User
+                {signatureUploading ? 'Uploading signature…' : `${editingUser ? 'Update' : 'Create'} user`}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setShowForm(false)
                   setEditingUser(null)
+                  setSignatureFile(null)
+                  setSignatureError('')
                   setAddingDesignation(false)
                   setNewDesignation('')
                   setDesignationError('')

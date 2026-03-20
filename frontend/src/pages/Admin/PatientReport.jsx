@@ -3,15 +3,94 @@ import { apiClient } from '../../api/client'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 
+function resolveUploadUrl(storedPath) {
+  if (!storedPath || typeof storedPath !== 'string') return ''
+  if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) return storedPath
+  const p = storedPath.startsWith('/') ? storedPath : `/${storedPath}`
+  const apiBase = import.meta.env?.VITE_API_URL
+  if (apiBase) {
+    const origin = String(apiBase).replace(/\/api\/?$/i, '')
+    return `${origin}${p}`
+  }
+  if (typeof window !== 'undefined') return `${window.location.origin}${p}`
+  return p
+}
+
+async function fetchImageAsDataUrl(absoluteUrl) {
+  const token = localStorage.getItem('token')
+  const res = await fetch(absoluteUrl, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error('Could not load image')
+  const blob = await res.blob()
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+function buildChecklistPdfRows(reportData) {
+  const rows = []
+  if (!reportData?.departments) return rows
+  for (const deptData of reportData.departments) {
+    rows.push([
+      {
+        content: `${deptData.department?.name ?? ''} (${deptData.department?.code ?? ''})${deptData.form?.name ? ` — ${deptData.form.name}` : ''}`,
+        colSpan: 6,
+        styles: { fillColor: [219, 234, 254], fontStyle: 'bold', fontSize: 8 },
+      },
+    ])
+    for (const section of deptData.sections || []) {
+      rows.push([
+        {
+          content: section.sectionName,
+          colSpan: 6,
+          styles: { fillColor: [241, 245, 249], fontStyle: 'bold', fontSize: 8 },
+        },
+      ])
+      ;(section.items || []).forEach((item, idx) => {
+        const label = item.checklistItemId?.label || 'N/A'
+        const responseType = item.checklistItemId?.responseType || 'YES_NO'
+        const responseValue = (item.responseValue || item.yesNoNa || '').toString()
+        const isTextType = responseType === 'TEXT'
+        const isMulti = responseType === 'MULTI_SELECT'
+        if (isTextType) {
+          rows.push([
+            {
+              content: `${idx + 1}. ${label}\n${responseValue || '—'}`,
+              colSpan: 6,
+              styles: { fontSize: 7, cellPadding: 2 },
+            },
+          ])
+          return
+        }
+        const val = responseValue.trim()
+        const isYes = /^yes$/i.test(val)
+        const isNo = /^no$/i.test(val)
+        const displayLabel = isMulti ? `${idx + 1}. ${label} — ${val || '—'}` : `${idx + 1}. ${label}`
+        rows.push([
+          displayLabel,
+          isYes ? '✓' : '',
+          isNo ? '✓' : '',
+          item.remarks && String(item.remarks).trim() ? item.remarks : '—',
+          item.corrective && String(item.corrective).trim() ? item.corrective : '—',
+          item.preventive && String(item.preventive).trim() ? item.preventive : '—',
+        ])
+      })
+    }
+  }
+  return rows
+}
+
 export function PatientReport() {
   const [departments, setDepartments] = useState([])
   const [locationsList, setLocationsList] = useState([])
-  const [shiftsList, setShiftsList] = useState([])
   const [departmentId, setDepartmentId] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [locationId, setLocationId] = useState('')
-  const [shiftId, setShiftId] = useState('')
   const [status, setStatus] = useState('all') // all | compliant | non-compliant
   const [sessions, setSessions] = useState([]) // { firstId, submittedAt, formName, submittedBy, description, submissions, isCompliant }
   const [reportSummary, setReportSummary] = useState(null)
@@ -20,18 +99,16 @@ export function PatientReport() {
   const [reportData, setReportData] = useState(null)
   const [error, setError] = useState('')
   const [location, setLocation] = useState('')
-  const [shift, setShift] = useState('')
   const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [pdfExporting, setPdfExporting] = useState(false)
 
   useEffect(() => {
     Promise.all([
       apiClient.get('/departments').then((d) => Array.isArray(d) ? d : []).catch(() => []),
       apiClient.get('/locations?selectable=true').then((d) => Array.isArray(d) ? d : []).catch(() => []),
-      apiClient.get('/shifts').then((d) => Array.isArray(d) ? d : []).catch(() => []),
-    ]).then(([depts, locs, shfts]) => {
+    ]).then(([depts, locs]) => {
       setDepartments(depts)
       setLocationsList(locs)
-      setShiftsList(shfts)
     })
   }, [])
 
@@ -40,8 +117,20 @@ export function PatientReport() {
     if (!submissions || submissions.length === 0) return null
     const deptMap = new Map()
     const first = submissions[0]
-    const desc = [first?.location, first?.shift].filter(Boolean).join(' / ') || 'General'
-    const context = { location: first?.location || '', shift: first?.shift || '', label: desc }
+    const locStr = (first?.location && String(first.location).trim()) ? String(first.location).trim() : ''
+    const desc = locStr || 'General'
+    const context = { location: locStr, label: desc }
+    const rawAssignee = first?.assignedToUserId
+    const supervisor =
+      rawAssignee && typeof rawAssignee === 'object' && rawAssignee._id
+        ? {
+            _id: rawAssignee._id,
+            name: rawAssignee.name,
+            email: rawAssignee.email,
+            designation: rawAssignee.designation,
+            signatureImage: rawAssignee.signatureImage || '',
+          }
+        : null
     submissions.forEach(sub => {
       const deptId = sub.department?._id || sub.department
       const deptName = sub.department?.name || 'Unknown Department'
@@ -81,6 +170,7 @@ export function PatientReport() {
     })
     return {
       context,
+      supervisor,
       departments: Array.from(deptMap.values()).map(deptData => ({
         department: deptData.department,
         form: deptData.form,
@@ -95,7 +185,7 @@ export function PatientReport() {
     }
   }
 
-  // Load submissions and report summary by filters (date range, department, location, shift), then group by session and filter by status
+  // Load submissions and report summary by filters (date range, department, location), then group by session and filter by status
   const loadSessions = async (e) => {
     e?.preventDefault()
     if (!departmentId) {
@@ -113,13 +203,11 @@ export function PatientReport() {
       if (fromDate) params.set('fromDate', fromDate)
       if (toDate) params.set('toDate', toDate)
       if (locationId) params.set('locationId', locationId)
-      if (shiftId) params.set('shiftId', shiftId)
       const summaryParams = new URLSearchParams()
       if (fromDate) summaryParams.set('fromDate', fromDate)
       if (toDate) summaryParams.set('toDate', toDate)
       if (departmentId) summaryParams.set('departmentId', departmentId)
       if (locationId) summaryParams.set('locationId', locationId)
-      if (shiftId) summaryParams.set('shiftId', shiftId)
 
       const [rows, summary] = await Promise.all([
         apiClient.get(`/audits?${params.toString()}`),
@@ -148,7 +236,7 @@ export function PatientReport() {
             submittedAt: subAt,
             formName: s.formTemplate?.name || s.formTemplate || 'Unknown',
             submittedBy: s.submittedBy?.name || s.submittedBy?.email || 'Unknown',
-            description: [s.location, s.shift].filter(Boolean).join(' / ') || 'General',
+            description: (s.location && String(s.location).trim()) ? String(s.location).trim() : 'General',
             submissions: [],
             yesCount: 0,
             totalCount: 0,
@@ -191,7 +279,6 @@ export function PatientReport() {
       const first = submissions?.[0]
       if (first) {
         setLocation(first.location || '')
-        setShift(first.shift || '')
       }
     } catch (err) {
       console.error('Error loading session:', err)
@@ -231,164 +318,149 @@ export function PatientReport() {
     URL.revokeObjectURL(url)
   }
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     if (!reportData) return
+    setPdfExporting(true)
+    setError('')
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = doc.internal.pageSize.getWidth()
+      const pageH = doc.internal.pageSize.getHeight()
+      const margin = 14
+      let y = 14
 
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    })
-
-    // Header
-    doc.setFontSize(14)
-    doc.setFont(undefined, 'bold')
-    doc.setTextColor(0, 0, 0)
-    doc.text('MAPIMS - GENERAL AUDIT CHECKLIST', 105, 15, { align: 'center' })
-
-    const submittedByName = reportData.departments?.[0]?.submittedBy?.name || reportData.departments?.[0]?.submittedBy?.email || ''
-    let yPos = 22
-    doc.setFontSize(9)
-    doc.text('SUBMITTED BY:', 20, yPos)
-    doc.text(submittedByName || '_______________________', 55, yPos)
-    doc.text('LOCATION:', 120, yPos)
-    doc.text(location || '___________', 145, yPos)
-    yPos += 5
-    doc.text('SHIFT:', 20, yPos)
-    doc.text(shift || '____', 40, yPos)
-
-    yPos = 40
-
-    // Report / Description
-    doc.setFontSize(10)
-    doc.setFont(undefined, 'bold')
-    doc.text('DETAILS', 20, yPos)
-    yPos += 5
-    doc.setFont(undefined, 'normal')
-    doc.setFontSize(9)
-    doc.text(`Context: ${reportData.context?.label || 'General'}`, 20, yPos)
-    const departmentNames = reportData.departments && reportData.departments.length > 0
-      ? reportData.departments.map(dept => dept.department.name).join(', ')
-      : 'N/A'
-    doc.text(`Department: ${departmentNames}`, 100, yPos)
-    yPos += 8
-
-    // Main table header (landscape layout needed for more columns)
-    doc.setFontSize(7)
-    doc.setFont(undefined, 'bold')
-    doc.setFillColor(240, 240, 240)
-    doc.rect(15, yPos, 180, 8, 'F')
-
-    // Table headers - adjusted positions for all 6 columns
-    doc.text('STANDARD & OBJECTIVE ELEMENTS', 17, yPos + 5)
-    doc.text('Y', 90, yPos + 5)
-    doc.text('N', 97, yPos + 5)
-    doc.text('Remarks', 105, yPos + 5)
-    doc.text('Corrective', 130, yPos + 5)
-    doc.text('Preventive', 160, yPos + 5)
-
-    yPos += 9
-
-    // Department-wise checklist
-    reportData.departments.forEach((deptData) => {
-      // Check page break
-      if (yPos > 270) {
-        doc.addPage()
-        yPos = 20
-      }
-
-      // Department header
+      doc.setFillColor(120, 20, 40)
+      doc.rect(0, 0, pageW, 11, 'F')
+      doc.setTextColor(255, 255, 255)
       doc.setFontSize(10)
-      doc.setFont(undefined, 'bold')
+      doc.setFont('helvetica', 'bold')
+      doc.text('APDCH — DENTAL GENERAL CHECKLIST', pageW / 2, 7.5, { align: 'center' })
       doc.setTextColor(0, 0, 0)
-      doc.text(`${deptData.department.name} (${deptData.department.code})`, 20, yPos)
-      yPos += 5
+      y = 16
 
-      // Sections
-      deptData.sections.forEach((section) => {
-        if (yPos > 270) {
-          doc.addPage()
-          yPos = 20
-        }
+      doc.setFontSize(8.5)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Submitted by:', margin, y)
+      doc.setFont('helvetica', 'normal')
+      const submitter =
+        reportData.departments?.[0]?.submittedBy?.name ||
+        reportData.departments?.[0]?.submittedBy?.email ||
+        '—'
+      doc.text(String(submitter).slice(0, 48), margin + 26, y)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Location:', margin + 92, y)
+      doc.setFont('helvetica', 'normal')
+      doc.text(String(location || reportData.context?.location || '—').slice(0, 36), margin + 108, y)
+      y += 7
 
-        // Section name
-        doc.setFontSize(9)
-        doc.setFont(undefined, 'bold')
-        doc.text(section.sectionName, 22, yPos)
-        yPos += 4
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.text('Details', margin, y)
+      y += 4
+      doc.setFont('helvetica', 'normal')
+      const deptNames =
+        reportData.departments?.length > 0
+          ? reportData.departments.map((d) => d.department?.name).join(', ')
+          : 'N/A'
+      doc.text(`Context: ${reportData.context?.label ?? 'General'}`, margin, y)
+      doc.text(`Department(s): ${deptNames}`, margin, y + 4)
+      y += 10
 
-        // Checklist items
-        section.items.forEach((item, idx) => {
-          if (yPos > 270) {
-            doc.addPage()
-            yPos = 20
-          }
-
-          const label = item.checklistItemId?.label || 'N/A'
-          const responseValue = item.responseValue || item.yesNoNa || ''
-          const isYes = responseValue === 'YES' || responseValue === 'Yes'
-          const isNo = responseValue === 'NO' || responseValue === 'No'
-          const remarks = item.remarks || ''
-          const corrective = item.corrective || ''
-          const preventive = item.preventive || ''
-
-          // Item label (truncated if too long)
-          doc.setFontSize(7)
-          doc.setFont(undefined, 'normal')
-          const labelLines = doc.splitTextToSize(`${idx + 1}. ${label}`, 70)
-          doc.text(labelLines[0], 17, yPos)
-
-          // Yes checkbox
-          doc.rect(90, yPos - 3, 3, 3, isYes ? 'F' : 'S')
-          if (isYes) {
-            doc.setFontSize(6)
-            doc.text('✓', 90.5, yPos - 1.5)
-          }
-
-          // No checkbox
-          doc.rect(97, yPos - 3, 3, 3, isNo ? 'F' : 'S')
-          if (isNo) {
-            doc.setFontSize(6)
-            doc.text('✓', 97.5, yPos - 1.5)
-          }
-
-          // Remarks (truncated)
-          doc.setFontSize(6)
-          const remarksLines = doc.splitTextToSize(remarks || '-', 20)
-          doc.text(remarksLines[0] || '-', 105, yPos)
-
-          // Corrective (truncated)
-          const correctiveLines = doc.splitTextToSize(corrective || '-', 25)
-          doc.text(correctiveLines[0] || '-', 130, yPos)
-
-          // Preventive (truncated)
-          const preventiveLines = doc.splitTextToSize(preventive || '-', 25)
-          doc.text(preventiveLines[0] || '-', 160, yPos)
-
-          yPos += 5
-        })
-
-        yPos += 2
+      doc.autoTable({
+        startY: y,
+        head: [['Standard & objective elements', 'Yes', 'No', 'Remarks', 'Corrective action', 'Preventive action']],
+        body: buildChecklistPdfRows(reportData),
+        theme: 'grid',
+        styles: {
+          fontSize: 6.5,
+          cellPadding: 1.1,
+          valign: 'top',
+          lineColor: [30, 41, 59],
+          lineWidth: 0.12,
+          textColor: [15, 23, 42],
+          font: 'helvetica',
+        },
+        headStyles: {
+          fillColor: [226, 232, 240],
+          textColor: [15, 23, 42],
+          fontStyle: 'bold',
+          fontSize: 6.5,
+        },
+        columnStyles: {
+          0: { cellWidth: 62 },
+          1: { cellWidth: 9, halign: 'center' },
+          2: { cellWidth: 9, halign: 'center' },
+          3: { cellWidth: 33 },
+          4: { cellWidth: 33 },
+          5: { cellWidth: 33 },
+        },
+        margin: { left: margin, right: margin },
       })
 
-      yPos += 3
-    })
+      let afterY = doc.lastAutoTable?.finalY ?? y
+      afterY += 8
+      if (afterY > pageH - 55) {
+        doc.addPage()
+        afterY = 18
+      }
 
-    // Footer
-    const pageCount = doc.internal.getNumberOfPages()
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i)
-      doc.setFontSize(7)
-      doc.setTextColor(128, 128, 128)
-      doc.text(
-        `Page ${i} of ${pageCount} | Generated: ${new Date().toLocaleString('en-GB')}`,
-        105,
-        285,
-        { align: 'center' }
-      )
+      const sup = reportData.supervisor
+      doc.setDrawColor(148, 163, 184)
+      doc.line(margin, afterY, pageW - margin, afterY)
+      afterY += 5
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Supervisor sign-off', margin, afterY)
+      afterY += 5
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.text([sup?.name, sup?.designation].filter(Boolean).join(' — ') || '—', margin, afterY)
+      afterY += 6
+
+      if (sup?.signatureImage) {
+        const imgUrl = resolveUploadUrl(sup.signatureImage)
+        try {
+          const dataUrl = await fetchImageAsDataUrl(imgUrl)
+          const fmt = String(dataUrl).toLowerCase().includes('image/png') ? 'PNG' : 'JPEG'
+          const imgH = 22
+          const imgW = 52
+          if (afterY + imgH > pageH - 14) {
+            doc.addPage()
+            afterY = 18
+          }
+          doc.addImage(dataUrl, fmt, margin, afterY, imgW, imgH)
+          afterY += imgH + 4
+        } catch {
+          doc.setFontSize(7)
+          doc.setTextColor(148, 163, 184)
+          doc.text('Signature image could not be embedded.', margin, afterY + 4)
+          afterY += 10
+        }
+      } else {
+        doc.setDrawColor(203, 213, 225)
+        doc.rect(margin, afterY, 52, 18, 'S')
+        doc.setFontSize(7)
+        doc.setTextColor(148, 163, 184)
+        doc.text('No signature on file', margin + 2, afterY + 11)
+        afterY += 22
+      }
+
+      const totalPages = doc.internal.getNumberOfPages()
+      const genLine = `Generated: ${new Date().toLocaleString('en-GB')}`
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i)
+        doc.setFontSize(7)
+        doc.setTextColor(100, 100, 100)
+        doc.setFont('helvetica', 'normal')
+        doc.text(`Page ${i} of ${totalPages}  |  ${genLine}`, pageW / 2, pageH - 6, { align: 'center' })
+      }
+
+      doc.save(`Checklist_Report_${Date.now()}.pdf`)
+    } catch {
+      setError('Could not generate PDF. Use Print and choose “Save as PDF” if this persists.')
+    } finally {
+      setPdfExporting(false)
     }
-
-    doc.save(`Checklist_Report_${Date.now()}.pdf`)
   }
 
   return (
@@ -615,7 +687,7 @@ export function PatientReport() {
           <div className="px-6 pt-4 pb-0">
             <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
               <span className="text-base flex-shrink-0">ℹ️</span>
-              <span>Select a department and click <strong>Load</strong> to view audit submissions. You can also filter by date range, location, or shift.</span>
+              <span>Select a department and click <strong>Load</strong> to view audit submissions. You can also filter by date range or location.</span>
             </div>
           </div>
 
@@ -672,19 +744,6 @@ export function PatientReport() {
                         </option>
                       )
                     })}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Shift</label>
-                  <select
-                    value={shiftId}
-                    onChange={(e) => setShiftId(e.target.value)}
-                    className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-base focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
-                  >
-                    <option value="">All shifts</option>
-                    {shiftsList.map((s) => (
-                      <option key={s._id} value={s._id}>{s.name}</option>
-                    ))}
                   </select>
                 </div>
                 <div>
@@ -894,13 +953,19 @@ export function PatientReport() {
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <button
+                    type="button"
                     onClick={handleExportPDF}
-                    className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white font-medium px-6 py-2.5 rounded-lg shadow-sm transition-all text-sm flex items-center gap-2"
+                    disabled={pdfExporting}
+                    className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white font-medium px-6 py-2.5 rounded-lg shadow-sm transition-all text-sm flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Export to PDF
+                    {pdfExporting ? (
+                      <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    )}
+                    {pdfExporting ? 'Building PDF…' : 'Export to PDF'}
                   </button>
                   <button
                     onClick={() => window.print()}
@@ -930,12 +995,12 @@ export function PatientReport() {
                 {/* Header */}
                 <div className="text-center mb-4 print:mb-3 border-b-2 border-slate-800 pb-3 print:pb-2">
                   <h1 className="text-lg sm:text-xl font-bold text-slate-900 mb-1 print:text-lg">
-                    MAPIMS - GENERAL AUDIT CHECKLIST
+                    APDCH — Dental General Checklist
                   </h1>
                 </div>
 
-                {/* Submitted by, Location, Shift */}
-                <div className="mb-4 print:mb-3 text-xs print:text-[10px] grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Submitted by, Location */}
+                <div className="mb-4 print:mb-3 text-xs print:text-[10px] grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <span className="font-semibold">SUBMITTED BY:</span>{' '}
                     <span className="border-b border-slate-400 inline-block min-w-[150px]">
@@ -946,12 +1011,6 @@ export function PatientReport() {
                     <span className="font-semibold">LOCATION:</span>{' '}
                     <span className="border-b border-slate-400 inline-block min-w-[120px]">
                       {location || reportData?.context?.location || '___________'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="font-semibold">SHIFT:</span>{' '}
-                    <span className="border-b border-slate-400 inline-block min-w-[60px]">
-                      {shift || reportData?.context?.shift || '____'}
                     </span>
                   </div>
                 </div>
@@ -1275,6 +1334,37 @@ export function PatientReport() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Supervisor sign-off */}
+                <div className="mt-8 print:mt-6 pt-4 print:pt-3 border-t-2 border-slate-400 print:border-slate-800">
+                  <h3 className="text-sm print:text-xs font-bold text-slate-900 mb-3 print:mb-2">Supervisor sign-off</h3>
+                  <div className="flex flex-col sm:flex-row sm:items-end gap-6 print:gap-4">
+                    <div className="text-xs print:text-[10px] text-slate-700 space-y-1">
+                      <p>
+                        <span className="font-semibold">Supervisor:</span>{' '}
+                        {[reportData.supervisor?.name, reportData.supervisor?.designation].filter(Boolean).join(' — ') || '—'}
+                      </p>
+                      {reportData.supervisor?.email && (
+                        <p className="text-slate-500">{reportData.supervisor.email}</p>
+                      )}
+                    </div>
+                    <div className="flex-shrink-0">
+                      {reportData.supervisor?.signatureImage ? (
+                        <div className="border-2 border-slate-800 rounded-md p-2 bg-white inline-block print:p-1.5">
+                          <img
+                            src={resolveUploadUrl(reportData.supervisor.signatureImage)}
+                            alt="Supervisor signature"
+                            className="max-h-24 max-w-[200px] object-contain print:max-h-20"
+                          />
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed border-slate-300 rounded-md w-[200px] h-24 flex items-center justify-center text-xs text-slate-400 print:h-20">
+                          No signature on file
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Footer */}

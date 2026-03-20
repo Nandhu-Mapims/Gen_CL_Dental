@@ -52,6 +52,10 @@ nginx/ssl/*.pem
 nginx/ssl/*.key
 nginx/ssl/*.crt
 
+# Uploaded supervisor signatures (keep directory via uploads/.gitkeep)
+backend/uploads/signatures/*
+!backend/uploads/signatures/.gitkeep
+
 # Backend specific
 backend/node_modules/
 backend/.env

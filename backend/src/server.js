@@ -82,6 +82,10 @@ app.use(morgan('dev'));
 // Health check (no auth) for Docker/load balancers
 app.get('/health', (_req, res) => res.status(200).json({ ok: true }));
 
+// Public static files (supervisor signatures)
+const uploadsRoot = path.join(__dirname, '../uploads');
+app.use('/uploads', express.static(uploadsRoot, { maxAge: '7d', fallthrough: true }));
+
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/departments', require('./routes/departmentRoutes'));

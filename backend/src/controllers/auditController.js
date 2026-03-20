@@ -144,6 +144,7 @@ exports.getSubmissionsBySession = async (req, res) => {
       .populate('formTemplate', 'name')
       .populate('checklistItemId', 'label section responseType order')
       .populate('submittedBy', 'name email')
+      .populate('assignedToUserId', 'name email designation signatureImage')
       .lean();
     if (!doc) {
       return res.status(404).json({ message: 'Submission not found' });
@@ -162,6 +163,7 @@ exports.getSubmissionsBySession = async (req, res) => {
       .populate('formTemplate', 'name')
       .populate('checklistItemId', 'label section responseType order')
       .populate('submittedBy', 'name email')
+      .populate('assignedToUserId', 'name email designation signatureImage')
       .sort({ createdAt: 1 })
       .lean();
     res.json(sessionSubmissions);

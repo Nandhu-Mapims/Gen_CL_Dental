@@ -17,6 +17,8 @@ const userSchema = new mongoose.Schema(
       },
     },
     isActive: { type: Boolean, default: true },
+    /** Public URL path served from /uploads/signatures/... (supervisor signature image) */
+    signatureImage: { type: String, trim: true, default: '' },
   },
   { timestamps: true }
 );

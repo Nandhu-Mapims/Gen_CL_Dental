@@ -386,17 +386,13 @@ export function Form() {
 
   const resetToNewForm = () => {
     setDepartmentId(department?._id?.toString() || department?._id || '')
+    setLocationType('')
     setLocationId('')
     setLocation('')
     setAssetId('')
     setAsset('')
     setSelectedSupervisorId('')
     setMessage('')
-    setDuplicateExists(false)
-    setDuplicateMessage('')
-    setLastDuplicateSubmittedAt(null)
-    setDuplicateCountdown('')
-    setCountdownTimer(null)
     clearDraft()
     const init = {}
     items.forEach((it) => {

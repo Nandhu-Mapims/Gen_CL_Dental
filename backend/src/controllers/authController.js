@@ -1,8 +1,17 @@
+const fs = require('fs');
+const path = require('path');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../config/env');
 const User = require('../models/User');
 const { ROLES } = require('../models/User');
+
+function resolveSignatureDiskPath(publicUrl) {
+  if (!publicUrl || typeof publicUrl !== 'string') return null;
+  const trimmed = publicUrl.trim();
+  if (!trimmed.startsWith('/uploads/')) return null;
+  return path.join(__dirname, '..', trimmed);
+}
 
 const JWT_EXPIRES_IN = '8h';
 
@@ -106,6 +115,7 @@ exports.registerUser = async (req, res) => {
     const populated = await User.findById(user._id).populate('department');
     res.status(201).json({
       id: user._id,
+      _id: user._id,
       email: user.email,
       name: user.name,
       role: user.role,
@@ -216,7 +226,8 @@ exports.login = async (req, res) => {
 exports.listSupervisors = async (req, res) => {
   try {
     const supervisors = await User.find({ role: 'SUPERVISOR', isActive: true })
-      .select('_id name designation')
+      .select('_id name designation department')
+      .populate('department', 'name code')
       .sort({ name: 1 });
     res.json(supervisors);
   } catch (err) {
@@ -243,6 +254,9 @@ exports.updateUser = async (req, res) => {
     const { id } = req.params;
     const { name, email, role, isActive, departmentId, designation, password } = req.body;
 
+    const existingUser = await User.findById(id).select('role signatureImage');
+    if (!existingUser) return res.status(404).json({ message: 'User not found' });
+
     const update = {
       name: name?.trim(),
       email: email?.toLowerCase().trim(),
@@ -250,6 +264,19 @@ exports.updateUser = async (req, res) => {
       isActive,
       designation: designation?.trim() || '',
     };
+
+    const effectiveRole = role ?? existingUser.role;
+    if (existingUser.role === 'SUPERVISOR' && effectiveRole !== 'SUPERVISOR' && existingUser.signatureImage) {
+      const oldPath = resolveSignatureDiskPath(existingUser.signatureImage);
+      if (oldPath && fs.existsSync(oldPath)) {
+        try {
+          fs.unlinkSync(oldPath);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      update.signatureImage = '';
+    }
 
     if (update.email && !validateEmail(update.email)) {
       return res.status(400).json({ message: 'Invalid email format' });
@@ -292,9 +319,73 @@ exports.updateUser = async (req, res) => {
   }
 };
 
+exports.uploadUserSignature = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded. Use form field name "signature".' });
+    }
+    const user = await User.findById(id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user.role !== 'SUPERVISOR') {
+      return res.status(400).json({ message: 'Signatures can only be set for Supervisor accounts.' });
+    }
+    const oldPath = resolveSignatureDiskPath(user.signatureImage);
+    if (oldPath && fs.existsSync(oldPath)) {
+      try {
+        fs.unlinkSync(oldPath);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const publicPath = `/uploads/signatures/${req.file.filename}`;
+    user.signatureImage = publicPath;
+    await user.save();
+    const populated = await User.findById(user._id).select('-passwordHash').populate('department', 'name code');
+    res.json(populated);
+  } catch (err) {
+    console.error('uploadUserSignature error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+exports.deleteUserSignature = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const oldPath = resolveSignatureDiskPath(user.signatureImage);
+    if (oldPath && fs.existsSync(oldPath)) {
+      try {
+        fs.unlinkSync(oldPath);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    user.signatureImage = '';
+    await user.save();
+    const populated = await User.findById(user._id).select('-passwordHash').populate('department', 'name code');
+    res.json(populated);
+  } catch (err) {
+    console.error('deleteUserSignature error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 exports.deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
+    const existing = await User.findById(id).select('signatureImage');
+    if (existing?.signatureImage) {
+      const oldPath = resolveSignatureDiskPath(existing.signatureImage);
+      if (oldPath && fs.existsSync(oldPath)) {
+        try {
+          fs.unlinkSync(oldPath);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
     await User.findByIdAndDelete(id);
     res.status(204).send();
   } catch (err) {

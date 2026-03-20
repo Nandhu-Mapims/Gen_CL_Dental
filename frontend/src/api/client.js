@@ -87,6 +87,67 @@ export const apiClient = {
   delete(path) {
     return this.request(path, { method: 'DELETE' });
   },
+
+  /** Multipart POST (e.g. supervisor signature). Do not set Content-Type — browser sets boundary. */
+  async postFormData(path, formDataBody) {
+    const token = localStorage.getItem('token');
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const timeout = 120000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers,
+        body: formDataBody,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        let errorData;
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            errorData = await res.json();
+          } catch {
+            errorData = { message: 'Request failed' };
+          }
+        } else {
+          const text = await res.text();
+          errorData = { message: text || 'Request failed' };
+        }
+        if (res.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
+        }
+        const error = new Error(errorData.message || 'Request failed');
+        error.response = { data: errorData, status: res.status };
+        throw error;
+      }
+      return res.json();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        const timeoutError = new Error('Upload timed out. Please try again.');
+        timeoutError.response = { status: 408, data: { message: 'Request timeout' } };
+        throw timeoutError;
+      }
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        const networkError = new Error('Unable to connect to server.');
+        networkError.response = { status: 0, data: { message: 'Network error' } };
+        throw networkError;
+      }
+      throw err;
+    }
+  },
 };
 
 
