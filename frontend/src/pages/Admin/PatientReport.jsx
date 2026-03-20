@@ -1,7 +1,23 @@
 import React, { useState, useEffect } from 'react'
 import { apiClient } from '../../api/client'
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import { autoTable } from 'jspdf-autotable'
+
+/** Avoid checkmark glyphs in WinAnsi PDF; strip C0 controls except tab/newline. */
+function pdfSafeText(value) {
+  if (value == null) return ''
+  const s = String(value)
+    .replace(/\u2713|\u2714/g, 'Y')
+    .replace(/\u2014|\u2013/g, '-')
+  return s
+    .split('')
+    .filter((ch) => {
+      const c = ch.charCodeAt(0)
+      return c === 9 || c === 10 || c === 13 || (c >= 32 && c !== 127)
+    })
+    .join('')
+    .slice(0, 8000)
+}
 
 function resolveUploadUrl(storedPath) {
   if (!storedPath || typeof storedPath !== 'string') return ''
@@ -37,7 +53,9 @@ function buildChecklistPdfRows(reportData) {
   for (const deptData of reportData.departments) {
     rows.push([
       {
-        content: `${deptData.department?.name ?? ''} (${deptData.department?.code ?? ''})${deptData.form?.name ? ` — ${deptData.form.name}` : ''}`,
+        content: pdfSafeText(
+          `${deptData.department?.name ?? ''} (${deptData.department?.code ?? ''})${deptData.form?.name ? ` - ${deptData.form.name}` : ''}`
+        ),
         colSpan: 6,
         styles: { fillColor: [219, 234, 254], fontStyle: 'bold', fontSize: 8 },
       },
@@ -45,7 +63,7 @@ function buildChecklistPdfRows(reportData) {
     for (const section of deptData.sections || []) {
       rows.push([
         {
-          content: section.sectionName,
+          content: pdfSafeText(section.sectionName),
           colSpan: 6,
           styles: { fillColor: [241, 245, 249], fontStyle: 'bold', fontSize: 8 },
         },
@@ -59,7 +77,7 @@ function buildChecklistPdfRows(reportData) {
         if (isTextType) {
           rows.push([
             {
-              content: `${idx + 1}. ${label}\n${responseValue || '—'}`,
+              content: pdfSafeText(`${idx + 1}. ${label}\n${responseValue || '-'}`),
               colSpan: 6,
               styles: { fontSize: 7, cellPadding: 2 },
             },
@@ -69,14 +87,16 @@ function buildChecklistPdfRows(reportData) {
         const val = responseValue.trim()
         const isYes = /^yes$/i.test(val)
         const isNo = /^no$/i.test(val)
-        const displayLabel = isMulti ? `${idx + 1}. ${label} — ${val || '—'}` : `${idx + 1}. ${label}`
+        const displayLabel = isMulti
+          ? `${idx + 1}. ${label} - ${val || '-'}`
+          : `${idx + 1}. ${label}`
         rows.push([
-          displayLabel,
-          isYes ? '✓' : '',
-          isNo ? '✓' : '',
-          item.remarks && String(item.remarks).trim() ? item.remarks : '—',
-          item.corrective && String(item.corrective).trim() ? item.corrective : '—',
-          item.preventive && String(item.preventive).trim() ? item.preventive : '—',
+          pdfSafeText(displayLabel),
+          isYes ? 'Y' : '',
+          isNo ? 'Y' : '',
+          pdfSafeText(item.remarks && String(item.remarks).trim() ? item.remarks : '-'),
+          pdfSafeText(item.corrective && String(item.corrective).trim() ? item.corrective : '-'),
+          pdfSafeText(item.preventive && String(item.preventive).trim() ? item.preventive : '-'),
         ])
       })
     }
@@ -334,7 +354,7 @@ export function PatientReport() {
       doc.setTextColor(255, 255, 255)
       doc.setFontSize(10)
       doc.setFont('helvetica', 'bold')
-      doc.text('APDCH — DENTAL GENERAL CHECKLIST', pageW / 2, 7.5, { align: 'center' })
+      doc.text('APDCH - DENTAL GENERAL CHECKLIST', pageW / 2, 7.5, { align: 'center' })
       doc.setTextColor(0, 0, 0)
       y = 16
 
@@ -346,11 +366,15 @@ export function PatientReport() {
         reportData.departments?.[0]?.submittedBy?.name ||
         reportData.departments?.[0]?.submittedBy?.email ||
         '—'
-      doc.text(String(submitter).slice(0, 48), margin + 26, y)
+      doc.text(pdfSafeText(String(submitter)).slice(0, 48), margin + 26, y)
       doc.setFont('helvetica', 'bold')
       doc.text('Location:', margin + 92, y)
       doc.setFont('helvetica', 'normal')
-      doc.text(String(location || reportData.context?.location || '—').slice(0, 36), margin + 108, y)
+      doc.text(
+        pdfSafeText(String(location || reportData.context?.location || '-')).slice(0, 36),
+        margin + 108,
+        y
+      )
       y += 7
 
       doc.setFont('helvetica', 'bold')
@@ -362,13 +386,22 @@ export function PatientReport() {
         reportData.departments?.length > 0
           ? reportData.departments.map((d) => d.department?.name).join(', ')
           : 'N/A'
-      doc.text(`Context: ${reportData.context?.label ?? 'General'}`, margin, y)
-      doc.text(`Department(s): ${deptNames}`, margin, y + 4)
+      doc.text(pdfSafeText(`Context: ${reportData.context?.label ?? 'General'}`), margin, y)
+      doc.text(pdfSafeText(`Department(s): ${deptNames}`), margin, y + 4)
       y += 10
 
-      doc.autoTable({
+      autoTable(doc, {
         startY: y,
-        head: [['Standard & objective elements', 'Yes', 'No', 'Remarks', 'Corrective action', 'Preventive action']],
+        head: [
+          [
+            'Standard & objective elements',
+            'Yes',
+            'No',
+            'Remarks',
+            'Corrective action',
+            'Preventive action',
+          ],
+        ],
         body: buildChecklistPdfRows(reportData),
         theme: 'grid',
         styles: {
@@ -387,12 +420,12 @@ export function PatientReport() {
           fontSize: 6.5,
         },
         columnStyles: {
-          0: { cellWidth: 62 },
+          0: { cellWidth: 58 },
           1: { cellWidth: 9, halign: 'center' },
           2: { cellWidth: 9, halign: 'center' },
-          3: { cellWidth: 33 },
-          4: { cellWidth: 33 },
-          5: { cellWidth: 33 },
+          3: { cellWidth: 32 },
+          4: { cellWidth: 32 },
+          5: { cellWidth: 32 },
         },
         margin: { left: margin, right: margin },
       })
@@ -414,7 +447,7 @@ export function PatientReport() {
       afterY += 5
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(8)
-      doc.text([sup?.name, sup?.designation].filter(Boolean).join(' — ') || '—', margin, afterY)
+      doc.text(pdfSafeText([sup?.name, sup?.designation].filter(Boolean).join(' - ') || '-'), margin, afterY)
       afterY += 6
 
       if (sup?.signatureImage) {
@@ -456,8 +489,13 @@ export function PatientReport() {
       }
 
       doc.save(`Checklist_Report_${Date.now()}.pdf`)
-    } catch {
-      setError('Could not generate PDF. Use Print and choose “Save as PDF” if this persists.')
+    } catch (err) {
+      const detail = err?.message || (typeof err === 'string' ? err : '')
+      setError(
+        detail
+          ? `Could not generate PDF: ${detail}`
+          : 'Could not generate PDF. Use Print and choose Save as PDF if this persists.'
+      )
     } finally {
       setPdfExporting(false)
     }
@@ -968,6 +1006,7 @@ export function PatientReport() {
                     {pdfExporting ? 'Building PDF…' : 'Export to PDF'}
                   </button>
                   <button
+                    type="button"
                     onClick={() => window.print()}
                     className="border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium px-6 py-2.5 rounded-lg transition-all text-sm flex items-center gap-2"
                   >
@@ -977,6 +1016,9 @@ export function PatientReport() {
                     Print
                   </button>
                 </div>
+                <p className="text-xs text-slate-500 w-full mt-2">
+                  Print tip: In the browser print dialog, turn on <strong>Background graphics</strong> (Chrome) or <strong>Print backgrounds</strong> (Firefox) so blue section headers and row shading appear.
+                </p>
               </div>
             </div>
 

@@ -35,15 +35,27 @@ button {
   font-family: inherit;
 }
 
-/* Print Styles for Patient Report */
+/* Print: hide app chrome (fixed sidebar was covering checklist report) */
 @media print {
   @page {
     size: A4;
-    margin: 15mm;
+    margin: 12mm;
+  }
+
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 0 !important;
+    background: white !important;
+    background-image: none !important;
+    background-attachment: scroll !important;
   }
 
   body {
     background: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print\\:shadow-none {
@@ -54,11 +66,40 @@ button {
     border-radius: 0 !important;
   }
 
-  /* Hide non-printable elements */
+  /* Layout: fixed header + sidebar must not print */
   header,
+  aside,
   nav,
   button:not(.print-keep) {
     display: none !important;
+  }
+
+  /* Mobile nav backdrop (fixed full-screen) */
+  div.fixed.inset-0.z-30,
+  div.fixed.inset-0[class*='z-30'] {
+    display: none !important;
+  }
+
+  /* Remove left offset reserved for sidebar */
+  main.flex-1,
+  main.min-w-0 {
+    margin-left: 0 !important;
+    margin-inline-start: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+  }
+
+  /* Drop space below fixed header */
+  .flex.pt-24 {
+    padding-top: 0 !important;
+    display: block !important;
+  }
+
+  main > div {
+    max-width: none !important;
+    padding: 0.25cm 0.5cm !important;
+    min-height: 0 !important;
   }
 
   /* Ensure proper page breaks */
@@ -67,8 +108,11 @@ button {
     page-break-inside: avoid;
   }
 
-  /* A4 container */
+  /* A4 report block */
   [style*='210mm'] {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
     box-shadow: none !important;
