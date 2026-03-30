@@ -44,6 +44,10 @@ export function UserManagement() {
   const [signaturePreviewLocal, setSignaturePreviewLocal] = useState(null)
   const [signatureError, setSignatureError] = useState('')
   const [signatureUploading, setSignatureUploading] = useState(false)
+  const [signatureInputMode, setSignatureInputMode] = useState('upload') // 'upload' | 'draw'
+  const signatureCanvasRef = useRef(null)
+  const isCanvasDrawingRef = useRef(false)
+  const didDrawSignatureRef = useRef(false)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -75,6 +79,128 @@ export function UserManagement() {
     setSignaturePreviewLocal(u)
     return () => URL.revokeObjectURL(u)
   }, [signatureFile])
+
+  // Signature canvas setup when switching to "draw"
+  useEffect(() => {
+    if (signatureInputMode !== 'draw') return
+    const canvas = signatureCanvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const cssWidth = rect.width || 600
+    const cssHeight = rect.height || 200
+    const dpr = window.devicePixelRatio || 1
+
+    // Make internal canvas pixel size match displayed size
+    canvas.width = Math.floor(cssWidth * dpr)
+    canvas.height = Math.floor(cssHeight * dpr)
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = 2.8
+
+    // White background makes the signature look consistent
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, cssWidth, cssHeight)
+    didDrawSignatureRef.current = false
+  }, [signatureInputMode])
+
+  const getSignatureCanvasPoint = (e) => {
+    const canvas = signatureCanvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+    const rect = canvas.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    return {
+      x: Math.max(0, Math.min(rect.width || 600, x)),
+      y: Math.max(0, Math.min(rect.height || 200, y)),
+    }
+  }
+
+  const clearSignatureCanvas = () => {
+    const canvas = signatureCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const rect = canvas.getBoundingClientRect()
+    const cssWidth = rect.width || 600
+    const cssHeight = rect.height || 200
+
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, cssWidth, cssHeight)
+    didDrawSignatureRef.current = false
+    isCanvasDrawingRef.current = false
+    setSignatureFile(null)
+    setSignatureError('')
+  }
+
+  const handleSignaturePointerDown = (e) => {
+    if (signatureInputMode !== 'draw') return
+    const canvas = signatureCanvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+
+    e.preventDefault()
+    isCanvasDrawingRef.current = true
+    didDrawSignatureRef.current = true
+    setSignatureFile(null) // new drawing hasn't been uploaded yet
+    setSignatureError('')
+
+    const { x, y } = getSignatureCanvasPoint(e)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+  }
+
+  const handleSignaturePointerMove = (e) => {
+    if (signatureInputMode !== 'draw') return
+    if (!isCanvasDrawingRef.current) return
+    const canvas = signatureCanvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+
+    e.preventDefault()
+    const { x, y } = getSignatureCanvasPoint(e)
+    ctx.lineTo(x, y)
+    ctx.stroke()
+  }
+
+  const handleSignaturePointerUp = () => {
+    isCanvasDrawingRef.current = false
+  }
+
+  const saveDrawnSignatureToFile = () => {
+    const canvas = signatureCanvasRef.current
+    if (!canvas) return
+    if (!didDrawSignatureRef.current) {
+      setSignatureError('Please draw your signature first.')
+      return
+    }
+
+    setSignatureError('')
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setSignatureError('Could not capture signature. Please try again.')
+          return
+        }
+        if (blob.size > 2 * 1024 * 1024) {
+          setSignatureError('Drawn signature must be 2 MB or smaller. Please redraw smaller.')
+          return
+        }
+
+        // Backend accepts JPEG/PNG and filters by mimetype; keep correct type.
+        const file = new File([blob], 'supervisor-signature.jpg', { type: 'image/jpeg' })
+        setSignatureFile(file)
+      },
+      'image/jpeg',
+      0.9
+    )
+  }
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -196,6 +322,7 @@ export function UserManagement() {
       setShowForm(false)
       setEditingUser(null)
       setSignatureFile(null)
+      setSignatureInputMode('upload')
       setFormData({
         name: '',
         email: '',
@@ -228,6 +355,7 @@ export function UserManagement() {
     setEditingUser(user)
     setSignatureFile(null)
     setSignatureError('')
+    setSignatureInputMode('upload')
     setAddingDesignation(false)
     setNewDesignation('')
     setDesignationError('')
@@ -287,6 +415,7 @@ export function UserManagement() {
             setEditingUser(null)
             setSignatureFile(null)
             setSignatureError('')
+            setSignatureInputMode('upload')
             setAddingDesignation(false)
             setNewDesignation('')
             setDesignationError('')
@@ -557,41 +686,115 @@ export function UserManagement() {
                   <label className="block text-sm font-medium text-slate-800 mb-1">
                     Supervisor signature
                   </label>
-                  <p className="text-xs text-slate-600 mb-2">
-                    Upload a PNG or JPEG (max 2 MB). Shown on checklist audit reports for submissions assigned to this supervisor.
-                  </p>
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,.png,.jpg,.jpeg"
-                    className="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-maroon-600 file:text-white hover:file:bg-maroon-700"
-                    onChange={(ev) => {
-                      const f = ev.target.files?.[0]
-                      setSignatureError('')
-                      if (!f) {
+
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSignatureInputMode('upload')
                         setSignatureFile(null)
-                        return
-                      }
-                      const okType = /^image\/(png|jpeg)$/i.test(f.type)
-                      if (!okType) {
-                        setSignatureError('Please choose a PNG or JPEG image.')
+                        setSignatureError('')
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                        signatureInputMode === 'upload'
+                          ? 'bg-maroon-600 text-white border-maroon-600'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      Upload image
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSignatureInputMode('draw')
                         setSignatureFile(null)
-                        ev.target.value = ''
-                        return
-                      }
-                      if (f.size > 2 * 1024 * 1024) {
-                        setSignatureError('Image must be 2 MB or smaller.')
-                        setSignatureFile(null)
-                        ev.target.value = ''
-                        return
-                      }
-                      setSignatureFile(f)
-                    }}
-                  />
+                        setSignatureError('')
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                        signatureInputMode === 'draw'
+                          ? 'bg-maroon-600 text-white border-maroon-600'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      Draw on canvas
+                    </button>
+                  </div>
+
+                  {signatureInputMode === 'upload' ? (
+                    <>
+                      <p className="text-xs text-slate-600 mb-2">
+                        Upload a PNG or JPEG (max 2 MB). Shown on checklist audit reports for submissions assigned to this supervisor.
+                      </p>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                        className="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-maroon-600 file:text-white hover:file:bg-maroon-700"
+                        onChange={(ev) => {
+                          const f = ev.target.files?.[0]
+                          setSignatureError('')
+                          if (!f) {
+                            setSignatureFile(null)
+                            return
+                          }
+                          const okType = /^image\/(png|jpeg)$/i.test(f.type)
+                          if (!okType) {
+                            setSignatureError('Please choose a PNG or JPEG image.')
+                            setSignatureFile(null)
+                            ev.target.value = ''
+                            return
+                          }
+                          if (f.size > 2 * 1024 * 1024) {
+                            setSignatureError('Image must be 2 MB or smaller.')
+                            setSignatureFile(null)
+                            ev.target.value = ''
+                            return
+                          }
+                          setSignatureFile(f)
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs text-slate-600">
+                        Draw your signature below (mouse/touch). Click “Save drawn signature”, then click “Create/Update user” to upload it.
+                      </p>
+                      <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                        <canvas
+                          ref={signatureCanvasRef}
+                          className="touch-none block"
+                          style={{ width: 600, maxWidth: '100%', aspectRatio: '1 / 1', height: 'auto', background: '#fff', borderRadius: 4 }}
+                          onPointerDown={handleSignaturePointerDown}
+                          onPointerMove={handleSignaturePointerMove}
+                          onPointerUp={handleSignaturePointerUp}
+                          onPointerLeave={handleSignaturePointerUp}
+                          onPointerCancel={handleSignaturePointerUp}
+                          aria-label="Draw signature canvas"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <button
+                          type="button"
+                          onClick={clearSignatureCanvas}
+                          className="px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={saveDrawnSignatureToFile}
+                          className="px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-lg transition-colors"
+                        >
+                          Save drawn signature
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {signatureError && (
                   <p className="text-sm text-red-600">{signatureError}</p>
                 )}
-                {(signaturePreviewLocal || (editingUser?.signatureImage && !signatureFile)) && (
+
+                {signatureInputMode === 'upload' && (signaturePreviewLocal || (editingUser?.signatureImage && !signatureFile)) && (
                   <div className="flex flex-wrap items-end gap-4">
                     <div>
                       <p className="text-xs font-medium text-slate-600 mb-1">Preview</p>
@@ -613,6 +816,31 @@ export function UserManagement() {
                       </button>
                     )}
                   </div>
+                )}
+
+                {signatureInputMode === 'draw' && signaturePreviewLocal && (
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-slate-600 mb-1">Preview</p>
+                      <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                        <img
+                          src={signaturePreviewLocal}
+                          alt="Drawn signature preview"
+                          className="max-h-24 max-w-[220px] object-contain"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {signatureInputMode === 'draw' && editingUser?.signatureImage && !signatureFile && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveStoredSignature}
+                    className="text-sm text-red-600 hover:text-red-800 font-medium underline-offset-2 hover:underline"
+                  >
+                    Remove saved signature
+                  </button>
                 )}
               </div>
             )}
@@ -644,6 +872,7 @@ export function UserManagement() {
                   setShowForm(false)
                   setEditingUser(null)
                   setSignatureFile(null)
+                  setSignatureInputMode('upload')
                   setSignatureError('')
                   setAddingDesignation(false)
                   setNewDesignation('')

@@ -1393,15 +1393,19 @@ export function PatientReport() {
                     </div>
                     <div className="flex-shrink-0">
                       {reportData.supervisor?.signatureImage ? (
-                        <div className="border-2 border-slate-800 rounded-md p-2 bg-white inline-block print:p-1.5">
+                        <div
+                          className="border-2 border-slate-800 rounded-md p-2 bg-white inline-block print:p-1.5 w-[clamp(200px,20vw,400px)] print:w-[200px]"
+                        >
                           <img
                             src={resolveUploadUrl(reportData.supervisor.signatureImage)}
                             alt="Supervisor signature"
-                            className="max-h-24 max-w-[200px] object-contain print:max-h-20"
+                            className="max-h-24 w-full object-contain print:max-h-20"
                           />
                         </div>
                       ) : (
-                        <div className="border-2 border-dashed border-slate-300 rounded-md w-[200px] h-24 flex items-center justify-center text-xs text-slate-400 print:h-20">
+                        <div
+                          className="border-2 border-dashed border-slate-300 rounded-md h-24 flex items-center justify-center text-xs text-slate-400 w-[clamp(200px,20vw,400px)] print:h-20 print:w-[200px]"
+                        >
                           No signature on file
                         </div>
                       )}
