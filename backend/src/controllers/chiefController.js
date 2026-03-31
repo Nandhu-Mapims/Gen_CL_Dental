@@ -142,6 +142,47 @@ exports.getSessionSubmissions = async (req, res) => {
   }
 };
 
+// Supervisor/reviewer: set per-session reviewer signature image (updates all rows in the session)
+exports.uploadReviewerSessionSignature = async (req, res) => {
+  try {
+    const { submittedById, date, formTemplateId, departmentId } = req.query;
+    if (!submittedById || !date || !formTemplateId || !departmentId) {
+      return res.status(400).json({ message: 'submittedById, date, formTemplateId and departmentId are required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded. Use form field name "signature".' });
+    }
+
+    const dayStart = new Date(date + 'T00:00:00.000Z');
+    const dayEnd = new Date(date + 'T23:59:59.999Z');
+    const publicPath = `/uploads/session-signatures/reviewer/${req.file.filename}`;
+    const now = new Date();
+    const reviewerId = req.user?.sub || req.user?.id || req.user?._id || null;
+
+    const AuditSubmission = require('../models/AuditSubmission');
+    await AuditSubmission.updateMany(
+      {
+        submittedBy: submittedById,
+        formTemplate: formTemplateId,
+        department: departmentId,
+        submittedAt: { $gte: dayStart, $lte: dayEnd },
+      },
+      {
+        $set: {
+          reviewerSignatureImage: publicPath,
+          reviewerSignatureAt: now,
+          reviewerSignatureBy: reviewerId,
+        },
+      }
+    );
+
+    res.json({ ok: true, reviewerSignatureImage: publicPath, reviewerSignatureAt: now, reviewerSignatureBy: reviewerId });
+  } catch (err) {
+    console.error('uploadReviewerSessionSignature error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 // Get all patients (IPIDs) assigned to this chief
 exports.getChiefPatients = async (req, res) => {
   try {

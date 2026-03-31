@@ -151,6 +151,8 @@ export function PatientReport() {
             signatureImage: rawAssignee.signatureImage || '',
           }
         : null
+    const submittedSignatureImage = first?.submittedSignatureImage || ''
+    const reviewerSignatureImage = first?.reviewerSignatureImage || ''
     submissions.forEach(sub => {
       const deptId = sub.department?._id || sub.department
       const deptName = sub.department?.name || 'Unknown Department'
@@ -191,6 +193,8 @@ export function PatientReport() {
     return {
       context,
       supervisor,
+      submittedSignatureImage,
+      reviewerSignatureImage,
       departments: Array.from(deptMap.values()).map(deptData => ({
         department: deptData.department,
         form: deptData.form,
@@ -1407,6 +1411,46 @@ export function PatientReport() {
                           className="border-2 border-dashed border-slate-300 rounded-md h-24 flex items-center justify-center text-xs text-slate-400 w-[clamp(200px,20vw,400px)] print:h-20 print:w-[200px]"
                         >
                           No signature on file
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Staff submitted signature + Supervisor digital sign-off */}
+                <div className="mt-6 print:mt-4 pt-4 print:pt-3 border-t border-slate-300">
+                  <h3 className="text-sm print:text-xs font-bold text-slate-900 mb-3 print:mb-2">Digital signatures</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 print:gap-4">
+                    <div>
+                      <p className="text-xs print:text-[10px] font-semibold text-slate-700 mb-2">Staff signature (submitted)</p>
+                      {reportData.submittedSignatureImage ? (
+                        <div className="border border-slate-300 rounded-md bg-white p-2 inline-block w-[clamp(200px,20vw,400px)] print:w-[200px]">
+                          <img
+                            src={resolveUploadUrl(reportData.submittedSignatureImage)}
+                            alt="Staff signature"
+                            className="max-h-24 w-full object-contain print:max-h-20"
+                          />
+                        </div>
+                      ) : (
+                        <div className="border border-dashed border-slate-300 rounded-md h-24 flex items-center justify-center text-xs text-slate-400 w-[clamp(200px,20vw,400px)] print:h-20 print:w-[200px]">
+                          No staff signature
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="text-xs print:text-[10px] font-semibold text-slate-700 mb-2">Supervisor signature (digital sign-off)</p>
+                      {reportData.reviewerSignatureImage ? (
+                        <div className="border border-slate-300 rounded-md bg-white p-2 inline-block w-[clamp(200px,20vw,400px)] print:w-[200px]">
+                          <img
+                            src={resolveUploadUrl(reportData.reviewerSignatureImage)}
+                            alt="Supervisor digital sign-off"
+                            className="max-h-24 w-full object-contain print:max-h-20"
+                          />
+                        </div>
+                      ) : (
+                        <div className="border border-dashed border-slate-300 rounded-md h-24 flex items-center justify-center text-xs text-slate-400 w-[clamp(200px,20vw,400px)] print:h-20 print:w-[200px]">
+                          No supervisor sign-off
                         </div>
                       )}
                     </div>

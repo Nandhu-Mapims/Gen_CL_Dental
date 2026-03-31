@@ -56,6 +56,12 @@ nginx/ssl/*.crt
 backend/uploads/signatures/*
 !backend/uploads/signatures/.gitkeep
 
+# Uploaded session signatures (keep directory via uploads/.gitkeep)
+backend/uploads/session-signatures/*
+!backend/uploads/session-signatures/.gitkeep
+!backend/uploads/session-signatures/submitted/.gitkeep
+!backend/uploads/session-signatures/reviewer/.gitkeep
+
 # Backend specific
 backend/node_modules/
 backend/.env

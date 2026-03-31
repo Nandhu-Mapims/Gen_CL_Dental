@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { apiClient } from '../../api/client'
 import { useAuth } from '../../context/AuthContext'
@@ -34,6 +34,137 @@ export function Form() {
   const [showRestoreDraftModal, setShowRestoreDraftModal] = useState(false)
   const [draftToRestore, setDraftToRestore] = useState(null)
   const [lastDraftSavedAt, setLastDraftSavedAt] = useState(null)
+
+  // Staff signature (per submission)
+  const signatureCanvasRef = useRef(null)
+  const isSignatureDrawingRef = useRef(false)
+  const didDrawSignatureRef = useRef(false)
+  const [signatureFile, setSignatureFile] = useState(null)
+  const [signaturePreviewLocal, setSignaturePreviewLocal] = useState(null)
+  const [signatureError, setSignatureError] = useState('')
+
+  useEffect(() => {
+    if (!signatureFile) {
+      setSignaturePreviewLocal(null)
+      return undefined
+    }
+    const u = URL.createObjectURL(signatureFile)
+    setSignaturePreviewLocal(u)
+    return () => URL.revokeObjectURL(u)
+  }, [signatureFile])
+
+  useEffect(() => {
+    const canvas = signatureCanvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const cssWidth = rect.width || 320
+    const cssHeight = rect.height || 320
+    const dpr = window.devicePixelRatio || 1
+
+    canvas.width = Math.floor(cssWidth * dpr)
+    canvas.height = Math.floor(cssHeight * dpr)
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = 2.8
+
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, cssWidth, cssHeight)
+    didDrawSignatureRef.current = false
+  }, [])
+
+  const getSignatureCanvasPoint = (e) => {
+    const canvas = signatureCanvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+    const rect = canvas.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    return {
+      x: Math.max(0, Math.min(rect.width || 320, x)),
+      y: Math.max(0, Math.min(rect.height || 320, y)),
+    }
+  }
+
+  const clearSignatureCanvas = () => {
+    const canvas = signatureCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const rect = canvas.getBoundingClientRect()
+    const cssWidth = rect.width || 320
+    const cssHeight = rect.height || 320
+
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, cssWidth, cssHeight)
+    didDrawSignatureRef.current = false
+    isSignatureDrawingRef.current = false
+    setSignatureFile(null)
+    setSignatureError('')
+  }
+
+  const handleSignaturePointerDown = (e) => {
+    const canvas = signatureCanvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    e.preventDefault()
+
+    isSignatureDrawingRef.current = true
+    didDrawSignatureRef.current = true
+    setSignatureFile(null)
+    setSignatureError('')
+
+    const { x, y } = getSignatureCanvasPoint(e)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+  }
+
+  const handleSignaturePointerMove = (e) => {
+    if (!isSignatureDrawingRef.current) return
+    const canvas = signatureCanvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    e.preventDefault()
+
+    const { x, y } = getSignatureCanvasPoint(e)
+    ctx.lineTo(x, y)
+    ctx.stroke()
+  }
+
+  const handleSignaturePointerUp = () => {
+    isSignatureDrawingRef.current = false
+  }
+
+  const saveDrawnSignatureToFile = () => {
+    const canvas = signatureCanvasRef.current
+    if (!canvas) return
+    if (!didDrawSignatureRef.current) {
+      setSignatureError('Please draw your signature first.')
+      return
+    }
+    setSignatureError('')
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setSignatureError('Could not capture signature. Please try again.')
+          return
+        }
+        if (blob.size > 2 * 1024 * 1024) {
+          setSignatureError('Signature must be 2 MB or smaller. Please redraw smaller.')
+          return
+        }
+        const file = new File([blob], 'staff-signature.jpg', { type: 'image/jpeg' })
+        setSignatureFile(file)
+      },
+      'image/jpeg',
+      0.9
+    )
+  }
 
   // Draft helpers
   const getDraftKey = useCallback(() => {
@@ -519,6 +650,11 @@ export function Form() {
       }
     }
 
+    if (!signatureFile) {
+      setMessage('Please draw and save your signature before submitting.')
+      return
+    }
+
     setSubmitting(true)
     setMessage('')
     try {
@@ -542,7 +678,13 @@ export function Form() {
         })),
       }
 
-      await apiClient.post('/audits', payload)
+      const created = await apiClient.post('/audits', payload)
+      const firstId = Array.isArray(created) ? (created[0]?._id || created[0]?.id) : (created?._id || created?.id)
+      if (firstId) {
+        const fd = new FormData()
+        fd.append('signature', signatureFile)
+        await apiClient.postFormData(`/audits/session/${firstId}/submitted-signature`, fd)
+      }
       clearDraft()
       setSubmittedContext({ location: location.trim(), asset: asset.trim() })
       setShowSuccessModal(true)
@@ -1009,33 +1151,80 @@ export function Form() {
 
         {/* Submit Button */}
         {allSectionNames.length > 0 && (
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-maroon-200/50 p-4 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={resetToNewForm}
-              className="px-6 py-2.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-all text-sm"
-            >
-              Reset Form
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white font-semibold px-8 py-2.5 rounded-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-sm text-sm flex items-center gap-2"
-            >
-              {submitting ? (
-                <>
-                  <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
-                  Submitting...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Submit Form
-                </>
-              )}
-            </button>
+          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-maroon-200/50 p-4 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-slate-900">Staff signature</h3>
+                <p className="text-xs text-slate-600">
+                  Draw your signature (required). Click “Save signature” before submitting.
+                </p>
+                <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                  <canvas
+                    ref={signatureCanvasRef}
+                    className="touch-none block"
+                    style={{ width: 'clamp(200px, 20vw, 400px)', aspectRatio: '1 / 1', height: 'auto', background: '#fff', borderRadius: 4 }}
+                    onPointerDown={handleSignaturePointerDown}
+                    onPointerMove={handleSignaturePointerMove}
+                    onPointerUp={handleSignaturePointerUp}
+                    onPointerLeave={handleSignaturePointerUp}
+                    onPointerCancel={handleSignaturePointerUp}
+                    aria-label="Draw staff signature canvas"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <button
+                    type="button"
+                    onClick={clearSignatureCanvas}
+                    className="px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveDrawnSignatureToFile}
+                    className="px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-lg transition-colors"
+                  >
+                    Save signature
+                  </button>
+                  {signaturePreviewLocal && (
+                    <span className="text-xs text-emerald-700 font-medium">Saved</span>
+                  )}
+                </div>
+                {signatureError && <p className="text-xs text-red-600">{signatureError}</p>}
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetToNewForm()
+                    clearSignatureCanvas()
+                  }}
+                  className="px-6 py-2.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-all text-sm"
+                >
+                  Reset Form
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white font-semibold px-8 py-2.5 rounded-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-sm text-sm flex items-center gap-2"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Submit Form
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </form>

@@ -1,6 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiClient } from '../../api/client'
 import { useAuth } from '../../context/AuthContext'
+
+function resolveUploadUrl(storedPath) {
+  if (!storedPath || typeof storedPath !== 'string') return ''
+  if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) return storedPath
+  const p = storedPath.startsWith('/') ? storedPath : `/${storedPath}`
+  const apiBase = import.meta.env?.VITE_API_URL
+  if (apiBase) {
+    const origin = String(apiBase).replace(/\/api\/?$/i, '')
+    return `${origin}${p}`
+  }
+  if (typeof window !== 'undefined') return `${window.location.origin}${p}`
+  return p
+}
 
 export function ChiefDashboard() {
   const { user } = useAuth()
@@ -16,6 +29,13 @@ export function ChiefDashboard() {
   const [saveError, setSaveError] = useState('')
   const [filterDept, setFilterDept] = useState('')
   const [filterDate, setFilterDate] = useState('')
+
+  // Reviewer signature (per session)
+  const reviewerCanvasRef = useRef(null)
+  const isReviewerDrawingRef = useRef(false)
+  const didDrawReviewerRef = useRef(false)
+  const [reviewerSignatureUploading, setReviewerSignatureUploading] = useState(false)
+  const [reviewerSignatureError, setReviewerSignatureError] = useState('')
 
   useEffect(() => {
     loadSessions()
@@ -66,6 +86,135 @@ export function ChiefDashboard() {
     setSessionSubmissions([])
     setActions({})
     setSaveError('')
+    setReviewerSignatureError('')
+    setReviewerSignatureUploading(false)
+  }
+
+  useEffect(() => {
+    if (!selectedSession) return
+    const canvas = reviewerCanvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const cssWidth = rect.width || 320
+    const cssHeight = rect.height || 320
+    const dpr = window.devicePixelRatio || 1
+
+    canvas.width = Math.floor(cssWidth * dpr)
+    canvas.height = Math.floor(cssHeight * dpr)
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = 2.8
+
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, cssWidth, cssHeight)
+    didDrawReviewerRef.current = false
+  }, [selectedSession])
+
+  const getReviewerPoint = (e) => {
+    const canvas = reviewerCanvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+    const rect = canvas.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    return {
+      x: Math.max(0, Math.min(rect.width || 320, x)),
+      y: Math.max(0, Math.min(rect.height || 320, y)),
+    }
+  }
+
+  const clearReviewerCanvas = () => {
+    const canvas = reviewerCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const rect = canvas.getBoundingClientRect()
+    const cssWidth = rect.width || 320
+    const cssHeight = rect.height || 320
+
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, cssWidth, cssHeight)
+    didDrawReviewerRef.current = false
+    isReviewerDrawingRef.current = false
+    setReviewerSignatureError('')
+  }
+
+  const handleReviewerPointerDown = (e) => {
+    const canvas = reviewerCanvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    e.preventDefault()
+
+    isReviewerDrawingRef.current = true
+    didDrawReviewerRef.current = true
+    setReviewerSignatureError('')
+
+    const { x, y } = getReviewerPoint(e)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+  }
+
+  const handleReviewerPointerMove = (e) => {
+    if (!isReviewerDrawingRef.current) return
+    const canvas = reviewerCanvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    e.preventDefault()
+
+    const { x, y } = getReviewerPoint(e)
+    ctx.lineTo(x, y)
+    ctx.stroke()
+  }
+
+  const handleReviewerPointerUp = () => {
+    isReviewerDrawingRef.current = false
+  }
+
+  const uploadReviewerSignature = async () => {
+    if (!selectedSession) return
+    const canvas = reviewerCanvasRef.current
+    if (!canvas) return
+    if (!didDrawReviewerRef.current) {
+      setReviewerSignatureError('Please draw your signature first.')
+      return
+    }
+
+    setReviewerSignatureError('')
+    setReviewerSignatureUploading(true)
+    try {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9))
+      if (!blob) throw new Error('Could not capture signature.')
+      if (blob.size > 2 * 1024 * 1024) {
+        throw new Error('Signature must be 2 MB or smaller. Please redraw smaller.')
+      }
+
+      const file = new File([blob], 'reviewer-signature.jpg', { type: 'image/jpeg' })
+      const fd = new FormData()
+      fd.append('signature', file)
+
+      const params = new URLSearchParams({
+        submittedById: selectedSession.submittedBy?._id || selectedSession.submittedBy,
+        date: selectedSession.date,
+        formTemplateId: selectedSession.formTemplate?._id || selectedSession.formTemplate,
+        departmentId: selectedSession.department?._id || selectedSession.department,
+      })
+
+      const resp = await apiClient.postFormData(`/chief/session-signature?${params.toString()}`, fd)
+      const newPath = resp?.reviewerSignatureImage
+      if (newPath) {
+        setSessionSubmissions((prev) => prev.map((s) => ({ ...s, reviewerSignatureImage: newPath })))
+      }
+    } catch (err) {
+      setReviewerSignatureError(err.response?.data?.message || err.message || 'Failed to save signature')
+    } finally {
+      setReviewerSignatureUploading(false)
+    }
   }
 
   const handleSaveAction = async (submissionId) => {
@@ -163,6 +312,7 @@ export function ChiefDashboard() {
 
   // ─── Session detail / review view (inlined to preserve textarea focus) ──────
   if (selectedSession) {
+    const reviewerSignatureStored = sessionSubmissions?.[0]?.reviewerSignatureImage
     return (
       <div className="space-y-4">
         {/* Back + header */}
@@ -182,6 +332,63 @@ export function ChiefDashboard() {
             <span>🏢 {selectedSession?.department?.name}</span>
             {selectedSession?.location && <span>📍 {selectedSession.location}</span>}
             {selectedSession?.shift && <span>🕐 {selectedSession.shift}</span>}
+          </div>
+        </div>
+
+        {/* Reviewer sign-off */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-slate-900">Supervisor sign-off (digital)</h3>
+              <p className="text-xs text-slate-600">
+                Draw and submit your sign-off for this session. This will appear on the report.
+              </p>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                  <canvas
+                    ref={reviewerCanvasRef}
+                    className="touch-none block"
+                    style={{ width: 'clamp(200px, 20vw, 400px)', aspectRatio: '1 / 1', height: 'auto', background: '#fff', borderRadius: 4 }}
+                    onPointerDown={handleReviewerPointerDown}
+                    onPointerMove={handleReviewerPointerMove}
+                    onPointerUp={handleReviewerPointerUp}
+                    onPointerLeave={handleReviewerPointerUp}
+                    onPointerCancel={handleReviewerPointerUp}
+                    aria-label="Draw reviewer signature canvas"
+                  />
+                </div>
+                {reviewerSignatureStored && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 mb-1">Saved on report</p>
+                    <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                      <img
+                        src={resolveUploadUrl(reviewerSignatureStored)}
+                        alt="Reviewer signature"
+                        className="max-h-24 w-[clamp(200px,20vw,400px)] object-contain"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <button
+                  type="button"
+                  onClick={clearReviewerCanvas}
+                  className="px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={uploadReviewerSignature}
+                  disabled={reviewerSignatureUploading}
+                  className="px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {reviewerSignatureUploading ? 'Saving…' : 'Save sign-off'}
+                </button>
+              </div>
+              {reviewerSignatureError && <p className="text-xs text-red-600">{reviewerSignatureError}</p>}
+            </div>
           </div>
         </div>
 

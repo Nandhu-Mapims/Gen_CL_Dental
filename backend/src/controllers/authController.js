@@ -375,19 +375,14 @@ exports.deleteUserSignature = async (req, res) => {
 exports.deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const existing = await User.findById(id).select('signatureImage');
-    if (existing?.signatureImage) {
-      const oldPath = resolveSignatureDiskPath(existing.signatureImage);
-      if (oldPath && fs.existsSync(oldPath)) {
-        try {
-          fs.unlinkSync(oldPath);
-        } catch (_) {
-          /* ignore */
-        }
-      }
-    }
-    await User.findByIdAndDelete(id);
-    res.status(204).send();
+    const existing = await User.findById(id).select('isActive');
+    if (!existing) return res.status(404).json({ message: 'User not found' });
+
+    // Soft-delete to preserve historical audit submissions / reports.
+    existing.isActive = false;
+    await existing.save();
+
+    res.status(200).json({ ok: true, id, isActive: false });
   } catch (err) {
     console.error('deleteUser error', err);
     res.status(500).json({ message: 'Server error' });

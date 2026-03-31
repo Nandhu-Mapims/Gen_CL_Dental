@@ -173,6 +173,90 @@ exports.getSubmissionsBySession = async (req, res) => {
   }
 };
 
+function buildSessionWindowFromDoc(doc) {
+  const submittedAt = new Date(doc.submittedAt);
+  const start = new Date(submittedAt);
+  start.setMilliseconds(0);
+  const end = new Date(start.getTime() + 1000);
+  return { start, end };
+}
+
+// Staff: set per-session submitted signature image (updates all rows in the session)
+exports.uploadSubmittedSessionSignature = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded. Use form field name "signature".' });
+    }
+
+    const anchor = await AuditSubmission.findById(id).select('department formTemplate submittedBy submittedAt').lean();
+    if (!anchor) return res.status(404).json({ message: 'Submission not found' });
+
+    const { start, end } = buildSessionWindowFromDoc(anchor);
+    const publicPath = `/uploads/session-signatures/submitted/${req.file.filename}`;
+    const now = new Date();
+
+    await AuditSubmission.updateMany(
+      {
+        department: anchor.department,
+        formTemplate: anchor.formTemplate,
+        submittedBy: anchor.submittedBy,
+        submittedAt: { $gte: start, $lt: end },
+      },
+      {
+        $set: {
+          submittedSignatureImage: publicPath,
+          submittedSignatureAt: now,
+        },
+      }
+    );
+
+    res.json({ ok: true, submittedSignatureImage: publicPath, submittedSignatureAt: now });
+  } catch (err) {
+    console.error('uploadSubmittedSessionSignature error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Supervisor/reviewer: set per-session reviewer signature image (updates all rows in the session)
+exports.uploadReviewerSessionSignature = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded. Use form field name "signature".' });
+    }
+
+    const anchor = await AuditSubmission.findById(id).select('department formTemplate submittedBy submittedAt assignedToUserId').lean();
+    if (!anchor) return res.status(404).json({ message: 'Submission not found' });
+
+    const { start, end } = buildSessionWindowFromDoc(anchor);
+    const publicPath = `/uploads/session-signatures/reviewer/${req.file.filename}`;
+    const now = new Date();
+    const reviewerId = req.user?.sub || req.user?.id || req.user?._id || null;
+
+    await AuditSubmission.updateMany(
+      {
+        department: anchor.department,
+        formTemplate: anchor.formTemplate,
+        submittedBy: anchor.submittedBy,
+        submittedAt: { $gte: start, $lt: end },
+      },
+      {
+        $set: {
+          reviewerSignatureImage: publicPath,
+          reviewerSignatureAt: now,
+          reviewerSignatureBy: reviewerId,
+        },
+      }
+    );
+
+    res.json({ ok: true, reviewerSignatureImage: publicPath, reviewerSignatureAt: now, reviewerSignatureBy: reviewerId });
+  } catch (err) {
+    console.error('uploadReviewerSessionSignature error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 // Report summary: completion %, overdue (non-compliant) count, rejection reasons, staff performance
 exports.getReportSummary = async (req, res) => {
   try {

@@ -41,6 +41,14 @@ const auditSubmissionSchema = new mongoose.Schema(
     auditDate: { type: Date, required: false, index: true },
     auditTime: { type: String, trim: true, required: false, index: true },
     isLocked: { type: Boolean, default: true },
+
+    // Session-scoped signatures (stored as public URLs served from /uploads/...)
+    submittedSignatureImage: { type: String, trim: true, default: '' }, // staff signature at submit time
+    submittedSignatureAt: { type: Date, default: null },
+
+    reviewerSignatureImage: { type: String, trim: true, default: '' }, // supervisor/reviewer signature during review
+    reviewerSignatureAt: { type: Date, default: null },
+    reviewerSignatureBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true }
 );
