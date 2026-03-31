@@ -441,19 +441,64 @@ export function PatientReport() {
         afterY = 18
       }
 
-      const sup = reportData.supervisor
+      // Digital signatures (session-scoped): staff + reviewer
       doc.setDrawColor(148, 163, 184)
       doc.line(margin, afterY, pageW - margin, afterY)
       afterY += 5
       doc.setFontSize(9)
       doc.setFont('helvetica', 'bold')
-      doc.text('Supervisor sign-off', margin, afterY)
+      doc.text('Digital signatures', margin, afterY)
       afterY += 5
+
+      const sigBoxW = 52
+      const sigBoxH = 18
+      const sigGap = 10
+      const staffLabel = 'Staff (submitted)'
+      const reviewerLabel = 'Supervisor (sign-off)'
+
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(8)
-      doc.text(pdfSafeText([sup?.name, sup?.designation].filter(Boolean).join(' - ') || '-'), margin, afterY)
-      afterY += 6
+      doc.setTextColor(15, 23, 42)
+      doc.text(staffLabel, margin, afterY)
+      doc.text(reviewerLabel, margin + sigBoxW + sigGap, afterY)
+      afterY += 4
 
+      async function drawSigBox(labelX, imgPath) {
+        if (imgPath) {
+          const imgUrl = resolveUploadUrl(imgPath)
+          try {
+            const dataUrl = await fetchImageAsDataUrl(imgUrl)
+            const fmt = String(dataUrl).toLowerCase().includes('image/png') ? 'PNG' : 'JPEG'
+            doc.addImage(dataUrl, fmt, labelX, afterY, sigBoxW, 22)
+          } catch {
+            doc.setDrawColor(203, 213, 225)
+            doc.rect(labelX, afterY, sigBoxW, sigBoxH, 'S')
+            doc.setFontSize(7)
+            doc.setTextColor(148, 163, 184)
+            doc.text('Could not embed.', labelX + 2, afterY + 11)
+          }
+        } else {
+          doc.setDrawColor(203, 213, 225)
+          doc.rect(labelX, afterY, sigBoxW, sigBoxH, 'S')
+          doc.setFontSize(7)
+          doc.setTextColor(148, 163, 184)
+          doc.text('Not available', labelX + 2, afterY + 11)
+        }
+      }
+
+      if (afterY + 26 > pageH - 14) {
+        doc.addPage()
+        afterY = 18
+      }
+
+      await drawSigBox(margin, reportData.submittedSignatureImage)
+      await drawSigBox(margin + sigBoxW + sigGap, reportData.reviewerSignatureImage)
+      afterY += 26
+
+      // Keep backward-compatible profile supervisor signature out of the report PDF
+      // (it caused a third signature area and could be stale compared to per-session sign-off)
+      /*
+      const sup = reportData.supervisor
       if (sup?.signatureImage) {
         const imgUrl = resolveUploadUrl(sup.signatureImage)
         try {
@@ -473,14 +518,8 @@ export function PatientReport() {
           doc.text('Signature image could not be embedded.', margin, afterY + 4)
           afterY += 10
         }
-      } else {
-        doc.setDrawColor(203, 213, 225)
-        doc.rect(margin, afterY, 52, 18, 'S')
-        doc.setFontSize(7)
-        doc.setTextColor(148, 163, 184)
-        doc.text('No signature on file', margin + 2, afterY + 11)
-        afterY += 22
       }
+      */
 
       const totalPages = doc.internal.getNumberOfPages()
       const genLine = `Generated: ${new Date().toLocaleString('en-GB')}`
@@ -1380,41 +1419,6 @@ export function PatientReport() {
                       ))}
                     </tbody>
                   </table>
-                </div>
-
-                {/* Supervisor sign-off */}
-                <div className="mt-8 print:mt-6 pt-4 print:pt-3 border-t-2 border-slate-400 print:border-slate-800">
-                  <h3 className="text-sm print:text-xs font-bold text-slate-900 mb-3 print:mb-2">Supervisor sign-off</h3>
-                  <div className="flex flex-col sm:flex-row sm:items-end gap-6 print:gap-4">
-                    <div className="text-xs print:text-[10px] text-slate-700 space-y-1">
-                      <p>
-                        <span className="font-semibold">Supervisor:</span>{' '}
-                        {[reportData.supervisor?.name, reportData.supervisor?.designation].filter(Boolean).join(' — ') || '—'}
-                      </p>
-                      {reportData.supervisor?.email && (
-                        <p className="text-slate-500">{reportData.supervisor.email}</p>
-                      )}
-                    </div>
-                    <div className="flex-shrink-0">
-                      {reportData.supervisor?.signatureImage ? (
-                        <div
-                          className="border-2 border-slate-800 rounded-md p-2 bg-white inline-block print:p-1.5 w-[clamp(200px,20vw,400px)] print:w-[200px]"
-                        >
-                          <img
-                            src={resolveUploadUrl(reportData.supervisor.signatureImage)}
-                            alt="Supervisor signature"
-                            className="max-h-24 w-full object-contain print:max-h-20"
-                          />
-                        </div>
-                      ) : (
-                        <div
-                          className="border-2 border-dashed border-slate-300 rounded-md h-24 flex items-center justify-center text-xs text-slate-400 w-[clamp(200px,20vw,400px)] print:h-20 print:w-[200px]"
-                        >
-                          No signature on file
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </div>
 
                 {/* Staff submitted signature + Supervisor digital sign-off */}
