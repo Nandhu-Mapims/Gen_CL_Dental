@@ -335,63 +335,6 @@ export function ChiefDashboard() {
           </div>
         </div>
 
-        {/* Reviewer sign-off */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-900">Supervisor sign-off (digital)</h3>
-              <p className="text-xs text-slate-600">
-                Draw and submit your sign-off for this session. This will appear on the report.
-              </p>
-              <div className="flex flex-wrap items-end gap-4">
-                <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
-                  <canvas
-                    ref={reviewerCanvasRef}
-                    className="touch-none block"
-                    style={{ width: 'clamp(200px, 20vw, 400px)', aspectRatio: '1 / 1', height: 'auto', background: '#fff', borderRadius: 4 }}
-                    onPointerDown={handleReviewerPointerDown}
-                    onPointerMove={handleReviewerPointerMove}
-                    onPointerUp={handleReviewerPointerUp}
-                    onPointerLeave={handleReviewerPointerUp}
-                    onPointerCancel={handleReviewerPointerUp}
-                    aria-label="Draw reviewer signature canvas"
-                  />
-                </div>
-                {reviewerSignatureStored && (
-                  <div>
-                    <p className="text-xs font-medium text-slate-600 mb-1">Saved on report</p>
-                    <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
-                      <img
-                        src={resolveUploadUrl(reviewerSignatureStored)}
-                        alt="Reviewer signature"
-                        className="max-h-24 w-[clamp(200px,20vw,400px)] object-contain"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2 items-center">
-                <button
-                  type="button"
-                  onClick={clearReviewerCanvas}
-                  className="px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors"
-                >
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={uploadReviewerSignature}
-                  disabled={reviewerSignatureUploading}
-                  className="px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {reviewerSignatureUploading ? 'Saving…' : 'Save sign-off'}
-                </button>
-              </div>
-              {reviewerSignatureError && <p className="text-xs text-red-600">{reviewerSignatureError}</p>}
-            </div>
-          </div>
-        </div>
-
         {showSaveSuccessPopup && (
           <div className="fixed top-6 right-6 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-medium animate-pulse">
             ✓ Action saved successfully
@@ -503,6 +446,63 @@ export function ChiefDashboard() {
             </div>
           ))
         )}
+
+        {/* Reviewer sign-off (moved to the end of the form) */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-slate-900">Supervisor sign-off (digital)</h3>
+              <p className="text-xs text-slate-600">
+                Draw and submit your sign-off for this session. This will appear on the report.
+              </p>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                  <canvas
+                    ref={reviewerCanvasRef}
+                    className="touch-none block"
+                    style={{ width: 'clamp(200px, 20vw, 400px)', aspectRatio: '1 / 1', height: 'auto', background: '#fff', borderRadius: 4 }}
+                    onPointerDown={handleReviewerPointerDown}
+                    onPointerMove={handleReviewerPointerMove}
+                    onPointerUp={handleReviewerPointerUp}
+                    onPointerLeave={handleReviewerPointerUp}
+                    onPointerCancel={handleReviewerPointerUp}
+                    aria-label="Draw reviewer signature canvas"
+                  />
+                </div>
+                {reviewerSignatureStored && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 mb-1">Saved on report</p>
+                    <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                      <img
+                        src={resolveUploadUrl(reviewerSignatureStored)}
+                        alt="Reviewer signature"
+                        className="max-h-24 w-[clamp(200px,20vw,400px)] object-contain"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <button
+                  type="button"
+                  onClick={clearReviewerCanvas}
+                  className="px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg transition-colors"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={uploadReviewerSignature}
+                  disabled={reviewerSignatureUploading}
+                  className="px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {reviewerSignatureUploading ? 'Saving…' : 'Save sign-off'}
+                </button>
+              </div>
+              {reviewerSignatureError && <p className="text-xs text-red-600">{reviewerSignatureError}</p>}
+            </div>
+          </div>
+        </div>
 
         <div className="flex gap-3">
           <button
