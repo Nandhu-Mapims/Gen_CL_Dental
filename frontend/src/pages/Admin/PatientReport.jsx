@@ -33,11 +33,27 @@ function resolveUploadUrl(storedPath) {
 }
 
 async function fetchImageAsDataUrl(absoluteUrl) {
-  const token = localStorage.getItem('token')
-  const res = await fetch(absoluteUrl, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
-  if (!res.ok) throw new Error('Could not load image')
+  // Images are served publicly from `/uploads/...`.
+  // Avoid sending `Authorization` here to prevent CORS preflight failures
+  // (which would stop `fetch` from returning the bytes needed by jsPDF).
+  let res
+  try {
+    res = await fetch(absoluteUrl, {
+      method: 'GET',
+      headers: {},
+      cache: 'no-store',
+    })
+  } catch (err) {
+    // Some deployments may protect image URLs; retry once with auth header.
+    const token = localStorage.getItem('token')
+    if (!token) throw err
+    res = await fetch(absoluteUrl, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    })
+  }
+  if (!res || !res.ok) throw new Error('Could not load image')
   const blob = await res.blob()
   return await new Promise((resolve, reject) => {
     const reader = new FileReader()
