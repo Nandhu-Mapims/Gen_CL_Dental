@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { apiClient } from '../../api/client'
+import { useAuth } from '../../context/AuthContext'
 import jsPDF from 'jspdf'
 import { autoTable } from 'jspdf-autotable'
 
@@ -105,12 +106,34 @@ function buildChecklistPdfRows(reportData) {
 }
 
 export function PatientReport() {
+  const { user: authUser } = useAuth()
+  const clinicalStaffReportScope =
+    authUser?.role === 'STAFF' && authUser?.userContext === 'CLINICAL'
+
+  const userContext =
+    authUser?.userContext === 'CLINICAL' || authUser?.userContext === 'NON_CLINICAL' || authUser?.userContext === 'BOTH'
+      ? authUser.userContext
+      : 'NON_CLINICAL'
+  const canSplitFormTypes = userContext === 'BOTH'
+  const [reportFormContextMode, setReportFormContextMode] = useState('BOTH') // BOTH | CLINICAL | NON_CLINICAL
+
+  const effectiveFormContext = canSplitFormTypes
+    ? reportFormContextMode === 'BOTH'
+      ? ''
+      : reportFormContextMode
+    : userContext === 'CLINICAL'
+      ? 'CLINICAL'
+      : 'NON_CLINICAL'
+
+  const isClinicalReport = effectiveFormContext === 'CLINICAL'
+
   const [departments, setDepartments] = useState([])
   const [locationsList, setLocationsList] = useState([])
   const [departmentId, setDepartmentId] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [locationId, setLocationId] = useState('')
+  const [patientUhidFilter, setPatientUhidFilter] = useState('')
   const [status, setStatus] = useState('all') // all | compliant | non-compliant
   const [sessions, setSessions] = useState([]) // { firstId, submittedAt, formName, submittedBy, description, submissions, isCompliant }
   const [reportSummary, setReportSummary] = useState(null)
@@ -138,8 +161,19 @@ export function PatientReport() {
     const deptMap = new Map()
     const first = submissions[0]
     const locStr = (first?.location && String(first.location).trim()) ? String(first.location).trim() : ''
-    const desc = locStr || 'General'
-    const context = { location: locStr, label: desc }
+    const patientUhidStr =
+      first?.patientUhid && String(first.patientUhid).trim() ? String(first.patientUhid).trim() : ''
+    const patientNameStr =
+      first?.patientName && String(first.patientName).trim() ? String(first.patientName).trim() : ''
+
+    const patientLabel = patientNameStr
+      ? patientUhidStr
+        ? `${patientNameStr} (${patientUhidStr})`
+        : patientNameStr
+      : patientUhidStr || '—'
+
+    const desc = isClinicalReport ? patientLabel : (locStr || 'General')
+    const context = { location: desc, label: desc }
     const rawAssignee = first?.assignedToUserId
     const supervisor =
       rawAssignee && typeof rawAssignee === 'object' && rawAssignee._id
@@ -226,12 +260,16 @@ export function PatientReport() {
       const params = new URLSearchParams({ departmentId, limit: '1000' })
       if (fromDate) params.set('fromDate', fromDate)
       if (toDate) params.set('toDate', toDate)
-      if (locationId) params.set('locationId', locationId)
+      if (effectiveFormContext) params.set('formContext', effectiveFormContext)
+      if (effectiveFormContext !== 'CLINICAL' && locationId) params.set('locationId', locationId)
+      if (isClinicalReport && patientUhidFilter.trim()) params.set('patientUhid', patientUhidFilter.trim())
       const summaryParams = new URLSearchParams()
       if (fromDate) summaryParams.set('fromDate', fromDate)
       if (toDate) summaryParams.set('toDate', toDate)
       if (departmentId) summaryParams.set('departmentId', departmentId)
-      if (locationId) summaryParams.set('locationId', locationId)
+      if (effectiveFormContext) summaryParams.set('formContext', effectiveFormContext)
+      if (effectiveFormContext !== 'CLINICAL' && locationId) summaryParams.set('locationId', locationId)
+      if (isClinicalReport && patientUhidFilter.trim()) summaryParams.set('patientUhid', patientUhidFilter.trim())
 
       const [rows, summary] = await Promise.all([
         apiClient.get(`/audits?${params.toString()}`),
@@ -255,12 +293,24 @@ export function PatientReport() {
         const isYes = /^yes$/i.test(String(val))
         if (!groups.has(key)) {
           const subAt = s.submittedAt ? new Date(s.submittedAt) : null
+          const patientUhidStr =
+            isClinicalReport && s.patientUhid && String(s.patientUhid).trim() ? String(s.patientUhid).trim() : ''
+          const patientNameStr =
+            isClinicalReport && s.patientName && String(s.patientName).trim() ? String(s.patientName).trim() : ''
+          const patientLabel = patientNameStr
+            ? patientUhidStr
+              ? `${patientNameStr} (${patientUhidStr})`
+              : patientNameStr
+            : patientUhidStr || '—'
+
           groups.set(key, {
             firstId: s._id,
             submittedAt: subAt,
             formName: s.formTemplate?.name || s.formTemplate || 'Unknown',
             submittedBy: s.submittedBy?.name || s.submittedBy?.email || 'Unknown',
-            description: (s.location && String(s.location).trim()) ? String(s.location).trim() : 'General',
+            description: isClinicalReport
+              ? patientLabel
+              : (s.location && String(s.location).trim()) ? String(s.location).trim() : 'General',
             submissions: [],
             yesCount: 0,
             totalCount: 0,
@@ -302,7 +352,20 @@ export function PatientReport() {
       setReportData(data)
       const first = submissions?.[0]
       if (first) {
-        setLocation(first.location || '')
+        if (isClinicalReport) {
+          const patientUhidStr =
+            first?.patientUhid && String(first.patientUhid).trim() ? String(first.patientUhid).trim() : ''
+          const patientNameStr =
+            first?.patientName && String(first.patientName).trim() ? String(first.patientName).trim() : ''
+          const patientLabel = patientNameStr
+            ? patientUhidStr
+              ? `${patientNameStr} (${patientUhidStr})`
+              : patientNameStr
+            : patientUhidStr || '—'
+          setLocation(patientLabel)
+        } else {
+          setLocation(first.location || '')
+        }
       }
     } catch (err) {
       console.error('Error loading session:', err)
@@ -372,7 +435,7 @@ export function PatientReport() {
         '—'
       doc.text(pdfSafeText(String(submitter)).slice(0, 48), margin + 26, y)
       doc.setFont('helvetica', 'bold')
-      doc.text('Location:', margin + 92, y)
+      doc.text(isClinicalReport ? 'Patient:' : 'Location:', margin + 92, y)
       doc.setFont('helvetica', 'normal')
       doc.text(
         pdfSafeText(String(location || reportData.context?.location || '-')).slice(0, 36),
@@ -765,11 +828,29 @@ export function PatientReport() {
           </div>
 
           {/* Intro hint */}
-          <div className="px-6 pt-4 pb-0">
+          <div className="px-6 pt-4 pb-0 space-y-3">
             <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
               <span className="text-base flex-shrink-0">ℹ️</span>
-              <span>Select a department and click <strong>Load</strong> to view audit submissions. You can also filter by date range or location.</span>
+              <span>
+                {clinicalStaffReportScope ? (
+                  <>
+                    Select an <strong>audited department</strong> (the service the checklist applies to) and click <strong>Load</strong>. You can filter by date range.
+                  </>
+                ) : (
+                  <>
+                    Select a department and click <strong>Load</strong> to view audit submissions. You can also filter by date range or location.
+                  </>
+                )}
+              </span>
             </div>
+            {clinicalStaffReportScope && (
+              <div className="flex items-start gap-2 p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm text-sky-900">
+                <span className="text-base flex-shrink-0">📋</span>
+                <span>
+                  Your account is <strong>clinical</strong>. This report shows <strong>your own</strong> submissions for <strong>clinical</strong> checklists only — not everyone’s data for that department. Summary stats match the same scope.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Filters */}
@@ -790,6 +871,37 @@ export function PatientReport() {
                     ))}
                   </select>
                 </div>
+                {isClinicalReport && (
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Patient UHID</label>
+                    <input
+                      type="text"
+                      value={patientUhidFilter}
+                      onChange={(e) => setPatientUhidFilter(e.target.value)}
+                      placeholder="e.g. UHID000123"
+                      className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-base focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
+                      autoComplete="off"
+                    />
+                  </div>
+                )}
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Form type</label>
+                    {canSplitFormTypes ? (
+                      <select
+                        value={reportFormContextMode}
+                        onChange={(e) => setReportFormContextMode(e.target.value)}
+                        className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-base focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
+                      >
+                        <option value="BOTH">Clinical & Non-clinical</option>
+                        <option value="CLINICAL">Clinical</option>
+                        <option value="NON_CLINICAL">Non-clinical</option>
+                      </select>
+                    ) : (
+                      <div className="w-full border-2 border-slate-200 rounded-lg px-4 py-3 text-base bg-slate-50 text-slate-800">
+                        {effectiveFormContext === 'CLINICAL' ? 'Clinical' : 'Non-clinical'} forms only
+                      </div>
+                    )}
+                  </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">From date</label>
                   <input
@@ -809,23 +921,27 @@ export function PatientReport() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Location</label>
-                  <select
-                    value={locationId}
-                    onChange={(e) => setLocationId(e.target.value)}
-                    className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-base focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
-                  >
-                    <option value="">All locations</option>
-                    {locationsList.map((loc) => {
-                      const zoneName = loc.parent?.areaName ?? (loc.parent && typeof loc.parent === 'object' ? loc.parent.areaName : null)
-                      const name = loc.areaName || loc.name || ''
-                      return (
-                        <option key={loc._id} value={loc._id}>
-                          {zoneName ? `${name} (${zoneName})` : name}
-                        </option>
-                      )
-                    })}
-                  </select>
+                    {effectiveFormContext !== 'CLINICAL' && (
+                      <>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">Location</label>
+                        <select
+                          value={locationId}
+                          onChange={(e) => setLocationId(e.target.value)}
+                          className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-base focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
+                        >
+                          <option value="">All locations</option>
+                          {locationsList.map((loc) => {
+                            const zoneName = loc.parent?.areaName ?? (loc.parent && typeof loc.parent === 'object' ? loc.parent.areaName : null)
+                            const name = loc.areaName || loc.name || ''
+                            return (
+                              <option key={loc._id} value={loc._id}>
+                                {zoneName ? `${name} (${zoneName})` : name}
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </>
+                    )}
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Status</label>
@@ -1093,7 +1209,7 @@ export function PatientReport() {
                     </span>
                   </div>
                   <div>
-                    <span className="font-semibold">LOCATION:</span>{' '}
+                    <span className="font-semibold">{isClinicalReport ? 'PATIENT:' : 'LOCATION:'}</span>{' '}
                     <span className="border-b border-slate-400 inline-block min-w-[120px]">
                       {location || reportData?.context?.location || '___________'}
                     </span>

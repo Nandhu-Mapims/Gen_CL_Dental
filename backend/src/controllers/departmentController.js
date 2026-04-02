@@ -62,14 +62,27 @@ exports.listDepartments = async (_req, res) => {
   }
 };
 
+function resolvedUserContextForAssignment(doc) {
+  if (!doc) return 'NON_CLINICAL';
+  if (doc.userContext === 'CLINICAL') return 'CLINICAL';
+  if (doc.userContext === 'BOTH') return 'BOTH';
+  return 'NON_CLINICAL';
+}
+
 // Get all users with their department information
 exports.getDepartmentUsers = async (_req, res) => {
   try {
     const users = await User.find({ isActive: true })
       .populate('department', 'name code')
-      .select('name email role designation department')
+      .select('name email role designation department userContext')
       .sort({ designation: 1, name: 1 });
-    res.json(users);
+    res.json(
+      users.map((u) => {
+        const o = u.toObject();
+        o.userContext = resolvedUserContextForAssignment(u);
+        return o;
+      })
+    );
   } catch (err) {
     console.error('getDepartmentUsers error', err);
     res.status(500).json({ message: 'Server error' });
@@ -79,7 +92,7 @@ exports.getDepartmentUsers = async (_req, res) => {
 // Get department activity logs (submissions, edits, etc.)
 exports.getDepartmentLogs = async (req, res) => {
   try {
-    const { departmentId } = req.query;
+    const { departmentId, formContext } = req.query;
     const userId = req.user?.sub;
     if (!userId) {
       return res.status(401).json({ message: 'Unauthorized' });
@@ -90,7 +103,25 @@ exports.getDepartmentLogs = async (req, res) => {
       return res.status(401).json({ message: 'User not found' });
     }
 
-    // Allow all users to view all departments
+    const userContext = user.userContext || 'NON_CLINICAL';
+    const requestedFormContext =
+      formContext === 'CLINICAL' || formContext === 'NON_CLINICAL' ? formContext : null;
+
+    // Backward compatibility:
+    // In older/legacy setups where users only have the operational workflow,
+    // we should NOT restrict non-clinical STAFF to only their own submissions.
+    // Only clinical-only STAFF should be scoped to their own clinical-form activity.
+    const shouldSelfScope = user.role === 'STAFF' && userContext === 'CLINICAL';
+
+    const effectiveFormContext = shouldSelfScope ? userContext : requestedFormContext;
+    const scopeSubmittedBy = shouldSelfScope ? userId : null;
+
+    let formTemplateIds = null;
+    if (effectiveFormContext) {
+      formTemplateIds = await FormTemplate.find({ formContext: effectiveFormContext, isActive: true }).distinct('_id');
+    }
+
+    // Allow all users to view all departments (but clinical-only STAFF can self-scope using shouldSelfScope above)
     const targetDepartmentId = departmentId;
 
     // Get all departments if no specific department requested; filter out null if id invalid
@@ -112,6 +143,8 @@ exports.getDepartmentLogs = async (req, res) => {
 
       try {
         const deptFilter = { department: dept._id };
+        if (scopeSubmittedBy) deptFilter.submittedBy = scopeSubmittedBy;
+        if (formTemplateIds) deptFilter.formTemplate = { $in: formTemplateIds };
 
         const formSubmissions = await AuditSubmission.aggregate([
           { $match: deptFilter },
@@ -156,13 +189,17 @@ exports.getDepartmentLogs = async (req, res) => {
         ]);
 
         // Populate the submittedBy field
-        const userIds = [...new Set(formSubmissions.map((s) => String(s.submittedBy)).filter(Boolean))];
-        const formTemplateIds = [...new Set(formSubmissions.map((s) => String(s.formTemplate)).filter(Boolean))];
+        const userIds = [...new Set(formSubmissions.map((s) => String(s.submittedBy)).filter(Boolean))]
+        const submittedFormTemplateIds = [
+          ...new Set(formSubmissions.map((s) => String(s.formTemplate)).filter(Boolean)),
+        ]
 
         const [usersList, formTemplates] = await Promise.all([
           userIds.length > 0 ? User.find({ _id: { $in: userIds } }).select('name email designation') : [],
-          formTemplateIds.length > 0 ? FormTemplate.find({ _id: { $in: formTemplateIds } }).select('name') : [],
-        ]);
+          submittedFormTemplateIds.length > 0
+            ? FormTemplate.find({ _id: { $in: submittedFormTemplateIds } }).select('name')
+            : [],
+        ])
 
         const usersById = new Map(usersList.map((u) => [String(u._id), u]));
         const formsById = new Map(formTemplates.map((f) => [String(f._id), f]));

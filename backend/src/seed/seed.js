@@ -156,7 +156,8 @@ const RUN = async () => {
       name: 'System Administrator',
       email: adminEmail,
       passwordHash: adminHash,
-      role: 'admin',
+      role: 'SUPER_ADMIN',
+      userContext: 'NON_CLINICAL',
       isActive: true,
     });
     console.log(`   ✅ Created admin: ${adminEmail}`);
@@ -175,19 +176,23 @@ const RUN = async () => {
         const auditorPassword = `${firstName.charAt(0).toUpperCase()}${firstName.substring(1)}@123`;
         const passwordHash = await bcrypt.hash(auditorPassword, 10);
 
+        const contexts = ['NON_CLINICAL', 'CLINICAL', 'BOTH'];
+        const userContext = contexts[i % contexts.length];
+
         const user = await User.create({
           name,
           email: auditorEmail,
           passwordHash,
-          role: 'auditor',
+          role: 'STAFF',
           designation: MRD_DESIGNATION,
           department: mrdDept._id,
+          userContext,
           isActive: true,
         });
 
         doctorUsers.push({ name, dept: mrdDept.name, email: auditorEmail, password: auditorPassword });
         mrdAuditorUsers.push(user);
-        console.log(`   ✅ Created MRD auditor: ${name} (${auditorEmail}) - ${mrdDept.name}`);
+        console.log(`   ✅ Created MRD auditor: ${name} (${auditorEmail}) — ${userContext} — ${mrdDept.name}`);
       }
       userMap.set(mrdDept._id.toString(), mrdAuditorUsers);
     } else {
@@ -230,7 +235,7 @@ const RUN = async () => {
         name: chief.name,
         email: chiefEmail,
         passwordHash: chiefPasswordHash,
-        role: 'chief',
+        role: 'SUPERVISOR',
         designation: 'Doctor',
         department: chiefDept._id,
         isActive: true,
@@ -272,7 +277,7 @@ const RUN = async () => {
         name: hodName,
         email: hodEmail,
         passwordHash: hodPasswordHash,
-        role: 'chief', // HOD uses 'chief' role to access department logs and doctor performance
+        role: 'SUPERVISOR',
         designation: 'Doctor',
         department: dept._id,
         isActive: true,
@@ -281,8 +286,10 @@ const RUN = async () => {
       hodUsers.push({
         name: hodName,
         department: dept.name,
+        deptId: dept._id,
         email: hodEmail,
         password: hodPassword,
+        user: hodUser,
       });
       
       console.log(`   ✅ Created HOD: ${hodName} (${hodEmail}) for ${dept.name}`);
@@ -294,17 +301,24 @@ const RUN = async () => {
     
     const formTemplates = [];
     const clinicalDepts = createdDepts.filter(d => d.code !== 'ANAE' && d.code !== 'NUS');
-    
-    for (const dept of clinicalDepts) {
+    const clinicalFormSplitIdx = Math.ceil(clinicalDepts.length / 2);
+
+    for (let idx = 0; idx < clinicalDepts.length; idx++) {
+      const dept = clinicalDepts[idx];
+      const isClinicalForm = idx >= clinicalFormSplitIdx;
       const form = await FormTemplate.create({
-        name: `${dept.name} Audit Form`,
-        description: `Quality audit checklist for ${dept.name} department`,
+        name: isClinicalForm
+          ? `${dept.name} — Clinical patient audit`
+          : `${dept.name} Audit Form`,
+        description: isClinicalForm
+          ? `Bedside / ward clinical audit for ${dept.name} (patient UHID required on submit)`
+          : `Quality audit checklist for ${dept.name} department`,
         departments: [dept._id],
-        isMultiDepartment: false,
         isActive: true,
+        formContext: isClinicalForm ? 'CLINICAL' : 'NON_CLINICAL',
       });
       formTemplates.push(form);
-      console.log(`   ✅ Created form: ${form.name}`);
+      console.log(`   ✅ Created form: ${form.name} (${form.formContext})`);
     }
     console.log('');
 
@@ -403,6 +417,25 @@ const RUN = async () => {
       const createdItems = await ChecklistItem.insertMany(items);
       checklistItemsByForm.set(form._id.toString(), createdItems);
       console.log(`   ✅ Created ${createdItems.length} items for ${form.name}`);
+    }
+    console.log('');
+
+    // MRD staff: assign by form type — clinical-only users only on clinical forms, non-clinical-only only on non-clinical (BOTH on both)
+    const mrdList = mrdDept ? userMap.get(mrdDept._id.toString()) || [] : [];
+    const mrdIdsNonClinical = mrdList
+      .filter((u) => u.userContext === 'NON_CLINICAL' || u.userContext === 'BOTH')
+      .map((u) => u._id);
+    const mrdIdsClinical = mrdList
+      .filter((u) => u.userContext === 'CLINICAL' || u.userContext === 'BOTH')
+      .map((u) => u._id);
+    if (formTemplates.length > 0 && (mrdIdsNonClinical.length > 0 || mrdIdsClinical.length > 0)) {
+      for (const form of formTemplates) {
+        const assigneeIds = form.formContext === 'CLINICAL' ? mrdIdsClinical : mrdIdsNonClinical;
+        await FormTemplate.updateOne({ _id: form._id }, { $set: { assignedUsers: assigneeIds } });
+      }
+      console.log(
+        `   ✅ Assigned MRD users by form context: non-clinical forms → ${mrdIdsNonClinical.length} user(s), clinical forms → ${mrdIdsClinical.length} user(s) (${formTemplates.length} forms)`
+      );
     }
     console.log('');
 
@@ -505,99 +538,127 @@ const RUN = async () => {
     ];
     
     let submissionCount = 0;
-    
+
     const mrdDeptIdForSubmissions = mrdDept ? mrdDept._id.toString() : null;
     const mrdAuditors = mrdDeptIdForSubmissions ? userMap.get(mrdDeptIdForSubmissions) : [];
+
+    const supervisorIdsForDept = (deptIdStr) => {
+      const ids = [];
+      for (const c of chiefUsers) {
+        if (c.user && c.user.department && c.user.department.toString() === deptIdStr) {
+          ids.push(c.user._id);
+        }
+      }
+      for (const h of hodUsers) {
+        if (h.deptId && h.deptId.toString() === deptIdStr && h.user) {
+          ids.push(h.user._id);
+        }
+      }
+      return ids;
+    };
 
     for (const admission of admissions) {
       const deptId = admission.department.toString();
       const dept = deptIdMap.get(deptId);
-      
+
       if (!mrdAuditors || mrdAuditors.length === 0) continue;
-      
-      // Find form for this department
-      const form = formTemplates.find(f => 
-        f.departments.some(d => d.toString() === deptId)
-      );
-      
+
+      const form = formTemplates.find((f) => f.departments.some((d) => d.toString() === deptId));
       if (!form) continue;
-      
+
       const items = checklistItemsByForm.get(form._id.toString());
       if (!items) continue;
-      
-      // MRD staff (auditors) submit for all departments
+
       const submittingUser = mrdAuditors[Math.floor(Math.random() * mrdAuditors.length)];
-      
-      // Select random chief (prefer chief from same department if available)
-      const deptChiefs = createdChiefs.filter(c => {
-        const chiefDept = deptCodeMap.get(CHIEF_DOCTORS.find(cd => cd.name === c.name)?.deptCode);
+
+      const deptChiefs = createdChiefs.filter((c) => {
+        const chiefDept = deptCodeMap.get(CHIEF_DOCTORS.find((cd) => cd.name === c.name)?.deptCode);
         return chiefDept && chiefDept._id.toString() === deptId;
       });
-      const assignedChief = deptChiefs.length > 0 
+      const assignedChief = deptChiefs.length > 0
         ? deptChiefs[Math.floor(Math.random() * deptChiefs.length)]
         : createdChiefs[Math.floor(Math.random() * createdChiefs.length)];
-      
-      // Submit 80-100% of checklist items (increased from 60-100%)
+
+      const supIds = supervisorIdsForDept(deptId);
+      const assignedSupervisorId =
+        supIds.length > 0 ? supIds[Math.floor(Math.random() * supIds.length)] : null;
+
       const numToSubmit = Math.floor(items.length * (0.8 + Math.random() * 0.2));
       const selectedItems = items.slice(0, numToSubmit);
-      
+
+      const patient = patients.find((p) => p._id.toString() === admission.patient.toString());
+
       for (const item of selectedItems) {
-        // 80% compliance rate (80% YES, 20% NO) - slightly lower for more realistic data
-        const responseValue = Math.random() < 0.80 ? 'YES' : 'NO';
-        
-        // Distribute submissions over time (more recent submissions)
-        const daysSinceAdmission = Math.floor((today.getTime() - admission.admissionDate.getTime()) / (1000 * 60 * 60 * 24));
-        const daysAgo = Math.floor(Math.random() * Math.min(daysSinceAdmission, 180)); // Within last 6 months or since admission
-        const submissionDate = new Date(today.getTime() - (daysAgo * 24 * 60 * 60 * 1000));
-        
-        const remarks = Math.random() > 0.5
-          ? ['Completed as per protocol', 'Verified and documented', 'All requirements met', 'Reviewed and confirmed', 'Documented in chart'][Math.floor(Math.random() * 5)]
-          : null;
-        
-        // 30% of submissions have corrective/preventive actions (for chief dashboard)
+        const responseValue = Math.random() < 0.8 ? 'YES' : 'NO';
+
+        const daysSinceAdmission = Math.floor(
+          (today.getTime() - admission.admissionDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const daysAgo = Math.floor(Math.random() * Math.min(daysSinceAdmission, 180));
+        const submissionDate = new Date(today.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+
+        const remarks =
+          Math.random() > 0.5
+            ? [
+                'Completed as per protocol',
+                'Verified and documented',
+                'All requirements met',
+                'Reviewed and confirmed',
+                'Documented in chart',
+              ][Math.floor(Math.random() * 5)]
+            : responseValue === 'NO'
+              ? 'See unit protocol'
+              : '';
+
         const hasActions = Math.random() < 0.3 && responseValue === 'NO';
-        const corrective = hasActions 
+        const corrective = hasActions
           ? correctiveActions[Math.floor(Math.random() * correctiveActions.length)]
           : '';
-        const preventive = hasActions 
+        const preventive = hasActions
           ? preventiveActions[Math.floor(Math.random() * preventiveActions.length)]
           : '';
-        
-        // Find chief user who can add actions
+
         const chiefUserDoc = chiefUserMap.get(assignedChief.name);
         const correctivePreventiveBy = hasActions && chiefUserDoc ? chiefUserDoc._id : null;
-        const correctivePreventiveAt = hasActions && correctivePreventiveBy
-          ? new Date(submissionDate.getTime() + Math.random() * (today.getTime() - submissionDate.getTime()))
-          : null;
-        
-        // Ensure createdAt and updatedAt are set explicitly for department logs
+        const correctivePreventiveAt =
+          hasActions && correctivePreventiveBy
+            ? new Date(submissionDate.getTime() + Math.random() * (today.getTime() - submissionDate.getTime()))
+            : null;
+
+        const auditDate = new Date(
+          Date.UTC(submissionDate.getFullYear(), submissionDate.getMonth(), submissionDate.getDate())
+        );
+        const auditTime = `${String(submissionDate.getHours()).padStart(2, '0')}:${String(submissionDate.getMinutes()).padStart(2, '0')}`;
+
+        const isClinicalForm = form.formContext === 'CLINICAL';
+
         const submission = await AuditSubmission.create({
           department: dept._id,
           formTemplate: form._id,
-          patient: admission.patient,
-          uhid: admission.uhid,
-          ipid: admission.ipid,
-          admission: admission._id,
-          patientName: patients.find(p => p._id.toString() === admission.patient.toString()).patientName,
+          location: [admission.ward && `Ward ${admission.ward}`, admission.unitNo].filter(Boolean).join(' · ') || 'General',
+          assignedToUserId: assignedSupervisorId || undefined,
           checklistItemId: item._id,
           responseValue,
-          yesNoNa: responseValue,
+          yesNoNa: responseValue === 'YES' || responseValue === 'NO' ? responseValue : undefined,
           remarks,
-          responsibility: ['Nurse', 'Doctor', 'Staff', 'Pharmacist', 'Lab Technician'][Math.floor(Math.random() * 5)],
+          responsibility: ['Nurse', 'Doctor', 'Staff', 'Pharmacist', 'Lab Technician'][
+            Math.floor(Math.random() * 5)
+          ],
           submittedBy: submittingUser._id,
           submittedAt: submissionDate,
-          createdAt: submissionDate, // Explicitly set for department logs query
-          updatedAt: hasActions && correctivePreventiveAt ? correctivePreventiveAt : submissionDate, // Set to submissionDate unless edited
-          unitChief: assignedChief.name,
+          auditDate,
+          auditTime,
           corrective,
           preventive,
-          correctivePreventiveBy: correctivePreventiveBy?._id,
-          correctivePreventiveAt,
+          correctivePreventiveBy: correctivePreventiveBy || undefined,
+          correctivePreventiveAt: correctivePreventiveAt || undefined,
           isLocked: true,
+          patientUhid: isClinicalForm && patient ? patient.uhid : '',
+          patientName: isClinicalForm && patient ? patient.patientName : '',
         });
         submissions.push(submission);
         submissionCount++;
-        
+
         if (submissionCount % 50 === 0) {
           console.log(`   ✅ Created ${submissionCount} submissions...`);
         }
@@ -614,7 +675,8 @@ const RUN = async () => {
     console.log(`   ✅ Users: ${doctorUsers.length + chiefUsers.length + hodUsers.length + 1} (1 admin + ${chiefUsers.length} chiefs + ${hodUsers.length} HODs + ${doctorUsers.length} auditors)`);
     console.log(`   ✅ Chief Doctors: ${createdChiefs.length}`);
     console.log(`   ✅ HOD Accounts: ${hodUsers.length}`);
-    console.log(`   ✅ Form Templates: ${formTemplates.length}`);
+    const clinicalFormCount = formTemplates.filter((f) => f.formContext === 'CLINICAL').length;
+    console.log(`   ✅ Form Templates: ${formTemplates.length} (${clinicalFormCount} clinical, ${formTemplates.length - clinicalFormCount} non-clinical)`);
     console.log(`   ✅ Checklist Items: ${Array.from(checklistItemsByForm.values()).reduce((sum, items) => sum + items.length, 0)}`);
     console.log(`   ✅ Patients: ${patients.length}`);
     console.log(`   ✅ Admissions: ${admissions.length}`);
@@ -636,7 +698,7 @@ const RUN = async () => {
     console.log('\n👤 ADMIN ACCOUNT:');
     console.log(`   Email:    ${adminEmail}`);
     console.log(`   Password: ${adminPassword}`);
-    console.log(`   Role:     Admin (Full Access)`);
+    console.log(`   Role:     SUPER_ADMIN (Full Access)`);
     
     console.log('\n👨‍⚕️ CHIEF DOCTOR ACCOUNTS (for validation & performance tracking):');
     chiefUsers.forEach((chief) => {

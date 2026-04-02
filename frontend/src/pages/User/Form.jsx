@@ -34,6 +34,10 @@ export function Form() {
   const [showRestoreDraftModal, setShowRestoreDraftModal] = useState(false)
   const [draftToRestore, setDraftToRestore] = useState(null)
   const [lastDraftSavedAt, setLastDraftSavedAt] = useState(null)
+  const [patientUhid, setPatientUhid] = useState('')
+  const [patientName, setPatientName] = useState('')
+
+  const isClinicalForm = formTemplate?.formContext === 'CLINICAL'
 
   // Staff signature (per submission)
   const signatureCanvasRef = useRef(null)
@@ -185,6 +189,8 @@ export function Form() {
       selectedSections,
       formTemplateId,
       formName: formTemplate?.name,
+      patientUhid,
+      patientName,
       savedAt: new Date().toISOString(),
     }
     try {
@@ -193,7 +199,7 @@ export function Form() {
     } catch (e) {
       console.warn('Failed to save draft:', e)
     }
-  }, [getDraftKey, departmentId, locationType, locationId, assetId, location, asset, answers, selectedSections, formTemplateId, formTemplate?.name])
+  }, [getDraftKey, departmentId, locationType, locationId, assetId, location, asset, answers, selectedSections, formTemplateId, formTemplate?.name, patientUhid, patientName])
 
   const availableLocationTypes = useMemo(() => {
     const TYPE_ORDER = ['ZONE', 'FLOOR', 'WARD', 'UNIT', 'ROOM', 'OTHER']
@@ -225,10 +231,8 @@ export function Form() {
 
   const hasUnsavedChanges =
     departmentId ||
-    locationId ||
-    assetId ||
-    location.trim() ||
-    asset.trim() ||
+    (!isClinicalForm && (locationId || location.trim() || assetId || asset.trim())) ||
+    (isClinicalForm && (patientUhid.trim() || patientName.trim())) ||
     selectedSections.length !== new Set(items.map((it) => it.section || 'Other')).size ||
     Object.values(answers).some(
       (a) =>
@@ -283,6 +287,8 @@ export function Form() {
 
         const form = await apiClient.get(`/form-templates/${formTemplateId}`)
         setFormTemplate(form)
+        setPatientUhid('')
+        setPatientName('')
 
         try {
           const list = await apiClient.get('/auth/users/supervisors')
@@ -363,12 +369,17 @@ export function Form() {
         setDepartment(initialDept)
         setDepartmentId(initialDept ? initialDept._id?.toString() || initialDept._id : '')
         try {
-          const [locations, assets] = await Promise.all([
-            apiClient.get('/locations?selectable=true').catch(() => []),
-            apiClient.get('/assets').catch(() => []),
-          ])
-          setLocationsList(Array.isArray(locations) ? locations : [])
-          setAssetsList(Array.isArray(assets) ? assets : [])
+          if (form.formContext === 'CLINICAL') {
+            setLocationsList([])
+            setAssetsList([])
+          } else {
+            const [locations, assets] = await Promise.all([
+              apiClient.get('/locations?selectable=true').catch(() => []),
+              apiClient.get('/assets').catch(() => []),
+            ])
+            setLocationsList(Array.isArray(locations) ? locations : [])
+            setAssetsList(Array.isArray(assets) ? assets : [])
+          }
         } catch (err) {
           console.error(err)
           setLocationsList([])
@@ -433,11 +444,13 @@ export function Form() {
                     const d = deptsActive.find((x) => (x._id?.toString() || x._id) === draft.departmentId)
                     if (d) setDepartment(d)
                   }
-                  setLocationId(draft.locationId || '')
-                  setLocation(draft.location || '')
-                  setLocationType(draft.locationType || '')
-                  setAssetId(draft.assetId || '')
-                  setAsset(draft.asset || '')
+                  if (form.formContext !== 'CLINICAL') {
+                    setLocationId(draft.locationId || '')
+                    setLocation(draft.location || '')
+                    setLocationType(draft.locationType || '')
+                    setAssetId(draft.assetId || '')
+                    setAsset(draft.asset || '')
+                  }
                   const merged = {}
                     ; (checklist || []).forEach((it) => {
                       const draftAns = draft.answers?.[it._id]
@@ -451,6 +464,10 @@ export function Form() {
                     setSelectedSections(draft.selectedSections.filter((s) => validSections.includes(s)))
                   } else {
                     setSelectedSections(validSections)
+                  }
+                  if (form.formContext === 'CLINICAL') {
+                    setPatientUhid(typeof draft.patientUhid === 'string' ? draft.patientUhid : '')
+                    setPatientName(typeof draft.patientName === 'string' ? draft.patientName : '')
                   }
                 }
               }
@@ -517,12 +534,13 @@ export function Form() {
   }, [formTemplateId, user])
 
   useEffect(() => {
+    if (formTemplate?.formContext === 'CLINICAL') return
     if (!locationId) {
       apiClient.get('/assets').then((data) => setAssetsList(Array.isArray(data) ? data : [])).catch(() => setAssetsList([]))
       return
     }
     apiClient.get(`/assets?locationId=${locationId}`).then((data) => setAssetsList(Array.isArray(data) ? data : [])).catch(() => setAssetsList([]))
-  }, [locationId])
+  }, [locationId, formTemplate?.formContext])
 
   // Duplicate submission checks and 24h countdown have been removed – submissions are always allowed
 
@@ -534,6 +552,8 @@ export function Form() {
     setAssetId('')
     setAsset('')
     setSelectedSupervisorId('')
+    setPatientUhid('')
+    setPatientName('')
     setMessage('')
     setSelectedSections(Array.from(new Set(items.map((it) => it.section || 'Other'))))
     clearDraft()
@@ -606,13 +626,20 @@ export function Form() {
       setMessage('Please select a department.')
       return
     }
-    if (!locationId) {
+    if (!isClinicalForm && !locationId) {
       setMessage('Please select a location.')
       return
     }
     if (!selectedSupervisorId) {
       setMessage('Please select a supervisor to submit to.')
       return
+    }
+
+    if (isClinicalForm) {
+      if (!patientUhid.trim() || !patientName.trim()) {
+        setMessage('Please enter patient UHID and patient name for this clinical form.')
+        return
+      }
     }
 
     // Validate responses (YES_NO can be stored in responseValue or yesNoNa)
@@ -669,9 +696,13 @@ export function Form() {
       const payload = {
         departmentId: departmentIdForSubmit,
         formTemplateId: formTemplateId,
-        locationId: locationId || undefined,
-        location: location.trim() || '',
+        ...(isClinicalForm
+          ? {}
+          : { locationId: locationId || undefined, location: location.trim() || '' }),
         assignedToUserId: selectedSupervisorId || undefined,
+        ...(isClinicalForm
+          ? { patientUhid: patientUhid.trim(), patientName: patientName.trim() }
+          : {}),
         items: selectedItems.map((it) => ({
           checklistItemId: it._id,
           ...answers[it._id],
@@ -686,7 +717,11 @@ export function Form() {
         await apiClient.postFormData(`/audits/session/${firstId}/submitted-signature`, fd)
       }
       clearDraft()
-      setSubmittedContext({ location: location.trim(), asset: asset.trim() })
+      setSubmittedContext(
+        isClinicalForm
+          ? { patientUhid: patientUhid.trim(), patientName: patientName.trim() }
+          : { location: location.trim(), asset: asset.trim() }
+      )
       setShowSuccessModal(true)
       // Reset form
       resetToNewForm()
@@ -813,6 +848,17 @@ export function Form() {
             {formTemplate.description && (
               <p className="text-slate-600 text-sm mt-1">{formTemplate.description}</p>
             )}
+            <p className="text-xs text-slate-500 mt-2">
+              {isClinicalForm ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 text-sky-800 px-2.5 py-0.5 border border-sky-200 font-medium">
+                  Clinical form — patient UHID and name required
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 text-slate-700 px-2.5 py-0.5 border border-slate-200 font-medium">
+                  Non-clinical checklist
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex flex-col items-end gap-1.5">
             <div className="flex items-center gap-2">
@@ -870,7 +916,12 @@ export function Form() {
         <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-maroon-200/50 overflow-hidden">
           <div className="bg-slate-50 border-b border-slate-200 px-4 py-3">
             <h3 className="text-sm font-semibold text-slate-900">
-              Operational context <span className="text-xs font-normal text-slate-600 ml-2">(Department/Service, Location, Supervisor)</span>
+              Operational context{' '}
+              <span className="text-xs font-normal text-slate-600 ml-2">
+                {isClinicalForm
+                  ? '(Department/Service, Patient, Supervisor)'
+                  : '(Department/Service, Location, Supervisor)'}
+              </span>
             </h3>
           </div>
           <div className="px-4 pt-3" />
@@ -895,66 +946,102 @@ export function Form() {
                   ))}
                 </select>
               </div>
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-700">Location Type <span className="text-red-600">*</span></label>
-                <select
-                  value={locationType}
-                  onChange={(e) => {
-                    const t = e.target.value
-                    setLocationType(t)
-                    // Reset dependent selections
-                    setLocationId('')
-                    setLocation('')
-                    setAssetId('')
-                    setAsset('')
-                  }}
-                  className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
-                  required
-                >
-                  <option value="">Select type</option>
-                  {availableLocationTypes.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-700">Location <span className="text-red-600">*</span></label>
-                <select
-                  value={locationId}
-                  onChange={(e) => {
-                    const id = e.target.value
-                    setLocationId(id)
-                    const loc = locationsList.find((x) => (x._id?.toString() || x._id) === id)
-                    setLocation(loc ? [loc.areaName, loc.building, loc.floor].filter(Boolean).join(' / ') : '')
-                    const t = String(loc?.locationType || 'OTHER').toUpperCase()
-                    if (t) setLocationType(t)
-                    setAssetId('')
-                    setAsset('')
-                  }}
-                  className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
-                  disabled={!locationType}
-                  required
-                >
-                  <option value="">{locationType ? 'Select location' : 'Select type first'}</option>
-                  {(() => {
-                    const getType = (loc) => String(loc?.locationType || 'OTHER').toUpperCase()
-                    const getZoneName = (loc) => (loc?.parent?.areaName ?? (loc?.parent && typeof loc.parent === 'object' ? loc.parent.areaName : null))
-                    const getLabel = (loc) => ([loc?.areaName, loc?.building, loc?.floor].filter(Boolean).join(' / ') || loc?.code || loc?._id || '—')
-                    const list = (Array.isArray(locationsList) ? locationsList : []).filter((loc) => getType(loc) === locationType)
-                    list.sort((a, b) => String(a?.areaName || '').localeCompare(String(b?.areaName || '')))
-                    return list.map((loc) => {
-                      const zoneName = getZoneName(loc)
-                      const baseLabel = getLabel(loc)
-                      const fullLabel = zoneName ? `${baseLabel} (${zoneName})` : baseLabel
-                      return (
-                        <option key={loc._id} value={loc._id}>
-                          {fullLabel}
-                        </option>
-                      )
-                    })
-                  })()}
-                </select>
-              </div>
+              {!isClinicalForm && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-700">Location Type <span className="text-red-600">*</span></label>
+                    <select
+                      value={locationType}
+                      onChange={(e) => {
+                        const t = e.target.value
+                        setLocationType(t)
+                        setLocationId('')
+                        setLocation('')
+                        setAssetId('')
+                        setAsset('')
+                      }}
+                      className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
+                      required
+                    >
+                      <option value="">Select type</option>
+                      {availableLocationTypes.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-700">Location <span className="text-red-600">*</span></label>
+                    <select
+                      value={locationId}
+                      onChange={(e) => {
+                        const id = e.target.value
+                        setLocationId(id)
+                        const loc = locationsList.find((x) => (x._id?.toString() || x._id) === id)
+                        setLocation(loc ? [loc.areaName, loc.building, loc.floor].filter(Boolean).join(' / ') : '')
+                        const t = String(loc?.locationType || 'OTHER').toUpperCase()
+                        if (t) setLocationType(t)
+                        setAssetId('')
+                        setAsset('')
+                      }}
+                      className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
+                      disabled={!locationType}
+                      required
+                    >
+                      <option value="">{locationType ? 'Select location' : 'Select type first'}</option>
+                      {(() => {
+                        const getType = (loc) => String(loc?.locationType || 'OTHER').toUpperCase()
+                        const getZoneName = (loc) => (loc?.parent?.areaName ?? (loc?.parent && typeof loc.parent === 'object' ? loc.parent.areaName : null))
+                        const getLabel = (loc) => ([loc?.areaName, loc?.building, loc?.floor].filter(Boolean).join(' / ') || loc?.code || loc?._id || '—')
+                        const list = (Array.isArray(locationsList) ? locationsList : []).filter((loc) => getType(loc) === locationType)
+                        list.sort((a, b) => String(a?.areaName || '').localeCompare(String(b?.areaName || '')))
+                        return list.map((loc) => {
+                          const zoneName = getZoneName(loc)
+                          const baseLabel = getLabel(loc)
+                          const fullLabel = zoneName ? `${baseLabel} (${zoneName})` : baseLabel
+                          return (
+                            <option key={loc._id} value={loc._id}>
+                              {fullLabel}
+                            </option>
+                          )
+                        })
+                      })()}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {isClinicalForm && (
+                <>
+                  <div className="space-y-1.5 md:col-span-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Patient UHID <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={patientUhid}
+                      onChange={(e) => setPatientUhid(e.target.value)}
+                      className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
+                      placeholder="e.g. UHID000123"
+                      autoComplete="off"
+                      required={isClinicalForm}
+                    />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Patient name <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={patientName}
+                      onChange={(e) => setPatientName(e.target.value)}
+                      className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
+                      placeholder="Full name as per record"
+                      autoComplete="name"
+                      required={isClinicalForm}
+                    />
+                  </div>
+                </>
+              )}
               
               <div className="space-y-1.5">
                 <label className="block text-xs font-semibold text-slate-700">
@@ -1243,7 +1330,10 @@ export function Form() {
               <div className="text-sm text-slate-600 mb-4 space-y-1">
                 <p>
                   <span className="font-semibold">Checklist submitted.</span>{' '}
+                  {submittedContext?.patientUhid &&
+                    ` (${submittedContext.patientName} — ${submittedContext.patientUhid})`}
                   {submittedContext &&
+                    !submittedContext.patientUhid &&
                     [submittedContext.location, submittedContext.asset]
                       .filter(Boolean)
                       .length > 0 &&

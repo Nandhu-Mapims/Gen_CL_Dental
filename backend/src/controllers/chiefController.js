@@ -2,11 +2,42 @@ const AuditSubmission = require('../models/AuditSubmission');
 const Patient = require('../models/Patient');
 const Admission = require('../models/Admission');
 const Notification = require('../models/Notification');
+const FormTemplate = require('../models/FormTemplate');
+const User = require('../models/User');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NEW: Get audit sessions for this supervisor (grouped by submittedBy + date + dept + form)
 // Shows all submissions in the supervisor's department(s) — no unitChief field needed.
 // ─────────────────────────────────────────────────────────────────────────────
+function normalizeFormContextMode(m) {
+  if (m === 'CLINICAL' || m === 'NON_CLINICAL') return m;
+  return null; // BOTH/ALL/undefined/null
+}
+
+async function resolveFormContextFilter(req, requestedMode) {
+  const mode = normalizeFormContextMode(requestedMode);
+  if (mode) {
+    const formTemplateIds = await FormTemplate.find({ formContext: mode, isActive: true }).distinct('_id');
+    return { formTemplate: { $in: formTemplateIds } };
+  }
+
+  // Default for non-admin chiefs: use user's profile context, if clinical-only or non-clinical-only.
+  const userId = req.user?.sub || req.user?.id || req.user?._id;
+  if (!userId) return null;
+  const currentUser = await User.findById(userId).select('role userContext').lean();
+  if (!currentUser) return null;
+  // SUPER_ADMIN should see both types by default for backward compatibility.
+  if (currentUser.role === 'SUPER_ADMIN') return null;
+  if (currentUser.userContext === 'CLINICAL' || currentUser.userContext === 'NON_CLINICAL') {
+    const formTemplateIds = await FormTemplate
+      .find({ formContext: currentUser.userContext, isActive: true })
+      .distinct('_id');
+    return { formTemplate: { $in: formTemplateIds } };
+  }
+
+  return null;
+}
+
 exports.getSupervisorSessions = async (req, res) => {
   try {
     const userId = req.user?.sub || req.user?.id;
@@ -26,7 +57,8 @@ exports.getSupervisorSessions = async (req, res) => {
         ? {}
         : { assignedToUserId: userId };
 
-    const submissions = await AuditSubmission.find(accessFilter)
+    const formContextFilter = await resolveFormContextFilter(req, req.query.formContext);
+    const submissions = await AuditSubmission.find({ ...accessFilter, ...(formContextFilter || {}) })
       .populate('submittedBy', 'name email designation')
       .populate('department', 'name code')
       .populate('formTemplate', 'name')
@@ -385,54 +417,65 @@ exports.updateCorrectivePreventive = async (req, res) => {
 // Admin only: Chief Analytics - statistics, trends, performance insights of all chiefs
 exports.getChiefAnalytics = async (req, res) => {
   try {
+    const formContextFilter = await resolveFormContextFilter(req, req.query.formContext);
     const now = new Date();
     const sevenDaysAgo = new Date(now);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const fourteenDaysAgo = new Date(now);
     fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
-    const allSubmissions = await AuditSubmission.find({})
-      .select('unitChief ipid uhid department formTemplate responseValue yesNoNa corrective preventive submittedAt')
+    // Current seed uses `assignedToUserId` for supervisor assignment.
+    // The legacy fields `unitChief/ipid/uhid` are not populated, so we group by `assignedToUserId` instead.
+    const allSubmissions = await AuditSubmission.find(formContextFilter || {})
+      .select('assignedToUserId department formTemplate responseValue yesNoNa corrective preventive submittedAt patientUhid patientName')
       .lean();
 
-    const chiefsMap = {};
-    const chiefsTrendMap = {}; // chiefName -> { last7SessionKeys: Set, prev7SessionKeys: Set }
+    const chiefsMap = {}; // supervisorId -> stats
+    const chiefsTrendMap = {}; // supervisorId -> { last7SessionKeys, prev7SessionKeys }
+    const supervisorIds = new Set();
 
     allSubmissions.forEach((sub) => {
-      const chiefName = (sub.unitChief || '').trim();
-      if (!chiefName) return;
+      const supervisorId = sub.assignedToUserId ? sub.assignedToUserId.toString() : '';
+      if (!supervisorId) return;
+      supervisorIds.add(supervisorId);
 
       const deptId = sub.department ? (sub.department._id ? sub.department._id.toString() : sub.department.toString()) : '';
       const formId = sub.formTemplate ? (sub.formTemplate._id ? sub.formTemplate._id.toString() : sub.formTemplate.toString()) : '';
-      // Use second-level granularity so all rows from the same form submission get the same key (one submit = many checklist rows)
       const submittedAtMs = sub.submittedAt ? new Date(sub.submittedAt).getTime() : 0;
       const submittedAtSec = Math.floor(submittedAtMs / 1000);
-      const sessionKey = `${chiefName}|${(sub.uhid || '')}|${(sub.ipid || '')}|${deptId}|${formId}|${submittedAtSec}`;
 
-      if (!chiefsMap[chiefName]) {
-        chiefsMap[chiefName] = {
-          chiefName,
+      const patientKey = (sub.patientUhid && String(sub.patientUhid).trim())
+        ? String(sub.patientUhid).trim()
+        : (sub.patientName && String(sub.patientName).trim())
+          ? String(sub.patientName).trim()
+          : '';
+
+      const sessionKey = `${supervisorId}|${patientKey}|${deptId}|${formId}|${submittedAtSec}`;
+
+      if (!chiefsMap[supervisorId]) {
+        chiefsMap[supervisorId] = {
+          supervisorId,
           sessionKeys: new Set(),
           yesCount: 0,
           noCount: 0,
           itemCount: 0,
           compliantCount: 0,
           patients: new Set(),
-          ipids: new Set(),
           withActionsCount: 0,
           lastSubmittedAt: null,
         };
-        chiefsTrendMap[chiefName] = { last7SessionKeys: new Set(), prev7SessionKeys: new Set() };
+        chiefsTrendMap[supervisorId] = { last7SessionKeys: new Set(), prev7SessionKeys: new Set() };
       }
 
-      const stats = chiefsMap[chiefName];
+      const stats = chiefsMap[supervisorId];
       stats.sessionKeys.add(sessionKey);
       stats.itemCount++;
+
       const val = (sub.responseValue || sub.yesNoNa || '').toString().trim().toUpperCase();
       if (val === 'YES') stats.yesCount++;
       else if (val === 'NO') stats.noCount++;
-      if (sub.ipid) stats.ipids.add(sub.ipid);
-      if (sub.uhid) stats.patients.add(sub.uhid);
+
+      if (patientKey) stats.patients.add(patientKey);
       if (sub.corrective || sub.preventive) stats.withActionsCount++;
 
       // Compliance: only NO is negative; YES, N/A, text/select = positive; NO with both corrective+preventive filled = positive
@@ -441,6 +484,7 @@ exports.getChiefAnalytics = async (req, res) => {
       const hasActions = cor.length > 0 && prev.length > 0;
       const isCompliant = val === 'NO' ? hasActions : (val === 'YES' || val === 'N/A' || val === 'NA' || val.length > 0);
       if (isCompliant) stats.compliantCount++;
+
       if (sub.submittedAt) {
         if (!stats.lastSubmittedAt || sub.submittedAt > stats.lastSubmittedAt) {
           stats.lastSubmittedAt = sub.submittedAt;
@@ -449,28 +493,37 @@ exports.getChiefAnalytics = async (req, res) => {
 
       const subDate = sub.submittedAt ? new Date(sub.submittedAt) : null;
       if (subDate) {
-        if (subDate >= sevenDaysAgo) chiefsTrendMap[chiefName].last7SessionKeys.add(sessionKey);
-        else if (subDate >= fourteenDaysAgo) chiefsTrendMap[chiefName].prev7SessionKeys.add(sessionKey);
+        if (subDate >= sevenDaysAgo) chiefsTrendMap[supervisorId].last7SessionKeys.add(sessionKey);
+        else if (subDate >= fourteenDaysAgo) chiefsTrendMap[supervisorId].prev7SessionKeys.add(sessionKey);
       }
     });
 
-    const chiefs = Object.values(chiefsMap).map((s) => ({
-      chiefName: s.chiefName,
-      totalSubmissions: s.sessionKeys.size,
-      yesCount: s.yesCount,
-      noCount: s.noCount,
-      totalPatients: s.ipids.size,
-      withActionsCount: s.withActionsCount,
-      complianceRate: s.itemCount > 0
-        ? parseFloat(((s.compliantCount / s.itemCount) * 100).toFixed(1))
-        : 0,
-      actionCoverageRate: s.noCount > 0
-        ? parseFloat(((s.withActionsCount / s.noCount) * 100).toFixed(1))
-        : 100,
-      lastSubmittedAt: s.lastSubmittedAt,
-      trendLast7: chiefsTrendMap[s.chiefName]?.last7SessionKeys?.size ?? 0,
-      trendPrev7: chiefsTrendMap[s.chiefName]?.prev7SessionKeys?.size ?? 0,
-    }));
+    const supervisorsById = new Map(
+      (await User.find({ _id: { $in: Array.from(supervisorIds) } }).select('name').lean()).map((u) => [
+        u._id.toString(),
+        u,
+      ])
+    );
+
+    const chiefs = Object.values(chiefsMap).map((s) => {
+      const supervisor = supervisorsById.get(s.supervisorId);
+      return {
+        chiefName: supervisor?.name || s.supervisorId,
+        totalSubmissions: s.sessionKeys.size,
+        yesCount: s.yesCount,
+        noCount: s.noCount,
+        totalPatients: s.patients.size,
+        withActionsCount: s.withActionsCount,
+        complianceRate:
+          s.itemCount > 0 ? parseFloat(((s.compliantCount / s.itemCount) * 100).toFixed(1)) : 0,
+        actionCoverageRate:
+          s.noCount > 0 ? parseFloat(((s.withActionsCount / s.noCount) * 100).toFixed(1)) : 100,
+        lastSubmittedAt: s.lastSubmittedAt,
+        trendLast7: chiefsTrendMap[s.supervisorId]?.last7SessionKeys?.size ?? 0,
+        trendPrev7: chiefsTrendMap[s.supervisorId]?.prev7SessionKeys?.size ?? 0,
+      }
+    })
+      .filter((c) => c.chiefName);
 
     chiefs.sort((a, b) => b.totalSubmissions - a.totalSubmissions);
 
@@ -504,8 +557,17 @@ exports.getMyAnalytics = async (req, res) => {
     }
 
     const name = chiefName.trim();
-    const submissions = await AuditSubmission.find({ unitChief: name })
-      .select('department responseValue yesNoNa corrective preventive submittedAt ipid uhid')
+    const formContextFilter = await resolveFormContextFilter(req, req.query.formContext);
+    const supervisorUser = await User.findOne({ name }).select('_id').lean();
+    if (!supervisorUser) {
+      return res.status(404).json({ message: 'Supervisor not found' });
+    }
+
+    const submissions = await AuditSubmission.find({
+      assignedToUserId: supervisorUser._id,
+      ...(formContextFilter || {}),
+    })
+      .select('department responseValue yesNoNa corrective preventive submittedAt patientUhid patientName')
       .populate('department', 'name code')
       .lean();
 
@@ -524,8 +586,7 @@ exports.getMyAnalytics = async (req, res) => {
       noCount: 0,
       compliantCount: 0,
       withActionsCount: 0,
-      ipids: new Set(),
-      uhids: new Set(),
+      patients: new Set(),
     };
     const byDept = {};
     submissions.forEach((sub) => {
@@ -534,8 +595,12 @@ exports.getMyAnalytics = async (req, res) => {
       if (val === 'YES') summary.yesCount++;
       else if (val === 'NO') summary.noCount++;
       if (sub.corrective || sub.preventive) summary.withActionsCount++;
-      if (sub.ipid) summary.ipids.add(sub.ipid);
-      if (sub.uhid) summary.uhids.add(sub.uhid);
+      const patientKey = (sub.patientUhid && String(sub.patientUhid).trim())
+        ? String(sub.patientUhid).trim()
+        : (sub.patientName && String(sub.patientName).trim())
+          ? String(sub.patientName).trim()
+          : '';
+      if (patientKey) summary.patients.add(patientKey);
 
       const cor = (sub.corrective || '').trim();
       const prev = (sub.preventive || '').trim();
@@ -546,12 +611,19 @@ exports.getMyAnalytics = async (req, res) => {
       const deptId = sub.department?._id?.toString() || 'unknown';
       const deptName = sub.department?.name || 'Unknown';
       if (!byDept[deptId]) {
-        byDept[deptId] = { departmentName: deptName, departmentCode: sub.department?.code, totalSubmissions: 0, withActions: 0, noCount: 0, ipids: new Set() };
+        byDept[deptId] = {
+          departmentName: deptName,
+          departmentCode: sub.department?.code,
+          totalSubmissions: 0,
+          withActions: 0,
+          noCount: 0,
+          patients: new Set(),
+        };
       }
       byDept[deptId].totalSubmissions++;
       if (sub.corrective || sub.preventive) byDept[deptId].withActions++;
       if (val === 'NO') byDept[deptId].noCount++;
-      if (sub.ipid) byDept[deptId].ipids.add(sub.ipid);
+      if (patientKey) byDept[deptId].patients.add(patientKey);
 
       const subDate = sub.submittedAt ? new Date(sub.submittedAt) : null;
       if (subDate) {
@@ -567,10 +639,10 @@ exports.getMyAnalytics = async (req, res) => {
       totalSubmissions: d.totalSubmissions,
       withActions: d.withActions,
       noCount: d.noCount,
-      patientCount: d.ipids.size,
+      patientCount: d.patients.size,
     })).sort((a, b) => b.totalSubmissions - a.totalSubmissions);
 
-    const totalPatients = summary.ipids.size;
+    const totalPatients = summary.patients.size;
     const complianceRate = summary.totalSubmissions > 0
       ? parseFloat(((summary.compliantCount / summary.totalSubmissions) * 100).toFixed(1))
       : 0;

@@ -30,6 +30,7 @@ export function FormTemplateManagement() {
     departmentId: '',
     isCommon: false,
     isActive: true,
+    formContext: 'NON_CLINICAL',
   })
   const [loadError, setLoadError] = useState('')
 
@@ -66,8 +67,12 @@ export function FormTemplateManagement() {
       return
     }
     const payload = {
-      ...formData,
+      name: formData.name,
+      description: formData.description,
       departmentIds: formData.departmentId ? [formData.departmentId] : [],
+      isCommon: formData.isCommon,
+      isActive: formData.isActive,
+      formContext: formData.formContext === 'CLINICAL' ? 'CLINICAL' : 'NON_CLINICAL',
     }
     try {
       if (editingForm) {
@@ -83,6 +88,7 @@ export function FormTemplateManagement() {
         departmentId: '',
         isCommon: false,
         isActive: true,
+        formContext: 'NON_CLINICAL',
       })
       loadData()
     } catch (err) {
@@ -102,6 +108,7 @@ export function FormTemplateManagement() {
       departmentId: departmentId || '',
       isCommon: form.isCommon || false,
       isActive: form.isActive !== undefined ? form.isActive : true,
+      formContext: form.formContext === 'CLINICAL' ? 'CLINICAL' : 'NON_CLINICAL',
     })
     setShowForm(true)
   }
@@ -134,7 +141,10 @@ export function FormTemplateManagement() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
         <div>
           <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-800">Form Templates</h2>
-          <p className="text-xs sm:text-sm md:text-base text-slate-600 mt-1">Create forms and assign them to departments</p>
+          <p className="text-xs sm:text-sm md:text-base text-slate-600 mt-1">
+            Create forms and assign them to departments. You can define <strong>non-clinical</strong> (operational) and{' '}
+            <strong>clinical</strong> (patient UHID/name) forms here—Super Admin works with both types everywhere in the app.
+          </p>
         </div>
         <button
           onClick={() => {
@@ -146,6 +156,7 @@ export function FormTemplateManagement() {
               departmentId: '',
               isCommon: false,
               isActive: true,
+              formContext: 'NON_CLINICAL',
             })
           }}
           className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg shadow-sm transition-colors text-xs sm:text-sm font-medium"
@@ -181,6 +192,35 @@ export function FormTemplateManagement() {
                 rows="3"
                 placeholder="Brief description of this form template"
               />
+            </div>
+
+            <div>
+              <span className="block text-sm font-medium text-slate-700 mb-2">Form type</span>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                  <input
+                    type="radio"
+                    name="formContext"
+                    checked={formData.formContext === 'NON_CLINICAL'}
+                    onChange={() => setFormData({ ...formData, formContext: 'NON_CLINICAL' })}
+                    className="text-maroon-600 border-slate-300 focus:ring-maroon-500"
+                  />
+                  Non-clinical (operational checklist — location, questions)
+                </label>
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                  <input
+                    type="radio"
+                    name="formContext"
+                    checked={formData.formContext === 'CLINICAL'}
+                    onChange={() => setFormData({ ...formData, formContext: 'CLINICAL' })}
+                    className="text-maroon-600 border-slate-300 focus:ring-maroon-500"
+                  />
+                  Clinical (staff enter patient UHID and name per submission)
+                </label>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Clinical forms require patient UHID and patient name when auditors submit; these appear on the staff dashboard with department.
+              </p>
             </div>
 
             <div>
@@ -260,6 +300,7 @@ export function FormTemplateManagement() {
               <tr>
                 <th className="text-left px-6 py-4 font-semibold text-sm text-slate-700 uppercase tracking-wide w-12">#</th>
                 <th className="text-left px-6 py-4 font-semibold text-sm text-slate-700 uppercase tracking-wide">Form Name</th>
+                <th className="text-left px-6 py-4 font-semibold text-sm text-slate-700 uppercase tracking-wide">Type</th>
                 <th className="text-left px-6 py-4 font-semibold text-sm text-slate-700 uppercase tracking-wide">Description</th>
                 <th className="text-left px-6 py-4 font-semibold text-sm text-slate-700 uppercase tracking-wide">Departments</th>
                 <th className="text-left px-6 py-4 font-semibold text-sm text-slate-700 uppercase tracking-wide">Status</th>
@@ -269,7 +310,7 @@ export function FormTemplateManagement() {
             <tbody className="divide-y divide-slate-200">
               {forms.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-8 text-center text-slate-500">
+                  <td colSpan="7" className="px-6 py-8 text-center text-slate-500">
                     No form templates created yet. Click "Create New Form" to get started.
                   </td>
                 </tr>
@@ -280,6 +321,17 @@ export function FormTemplateManagement() {
                     <tr key={form._id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 text-slate-500 font-medium">{idx + 1}</td>
                       <td className="px-6 py-4 font-medium text-slate-800">{form.name}</td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
+                            form.formContext === 'CLINICAL'
+                              ? 'bg-sky-50 text-sky-800 border border-sky-200'
+                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                          }`}
+                        >
+                          {form.formContext === 'CLINICAL' ? 'Clinical' : 'Non-clinical'}
+                        </span>
+                      </td>
                       <td className="px-6 py-4 text-sm text-slate-600 max-w-xs truncate">
                         {form.description || '-'}
                       </td>

@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const AuditSubmission = require('../models/AuditSubmission');
 const FormTemplate = require('../models/FormTemplate');
+const User = require('../models/User');
+const { userMatchesFormContext } = require('../utils/formContextAccess');
 
 function toObjectId(id) {
   if (!id) return null;
@@ -8,10 +10,56 @@ function toObjectId(id) {
   return str && mongoose.Types.ObjectId.isValid(str) ? new mongoose.Types.ObjectId(str) : null;
 }
 
+/** Clinical-only staff: submissions report must not show department-wide data — only own clinical-form rows. */
+async function applyClinicalStaffReportScope(req, filter) {
+  const userId = req.user?.sub || req.user?.id || req.user?._id;
+  if (!userId) return;
+  const userDoc = await User.findById(userId).select('role userContext').lean();
+  if (!userDoc || userDoc.role !== 'STAFF' || userDoc.userContext !== 'CLINICAL') return;
+
+  const clinicalFormIds = await FormTemplate.find({ formContext: 'CLINICAL' }).distinct('_id');
+  filter.submittedBy = userId;
+  filter.formTemplate = { $in: clinicalFormIds.length ? clinicalFormIds : [] };
+}
+
+async function assertClinicalStaffCanOpenSession(req, anchorDoc) {
+  const userId = req.user?.sub || req.user?.id || req.user?._id;
+  if (!userId || !anchorDoc) return;
+  const userDoc = await User.findById(userId).select('role userContext').lean();
+  if (!userDoc || userDoc.role !== 'STAFF' || userDoc.userContext !== 'CLINICAL') return;
+
+  const submitterId = anchorDoc.submittedBy?._id || anchorDoc.submittedBy;
+  if (String(submitterId) !== String(userId)) {
+    const err = new Error('FORBIDDEN_SESSION');
+    throw err;
+  }
+  const formId = anchorDoc.formTemplate?._id || anchorDoc.formTemplate;
+  const ft = await FormTemplate.findById(formId).select('formContext').lean();
+  if (!ft || ft.formContext !== 'CLINICAL') {
+    const err = new Error('FORBIDDEN_SESSION');
+    throw err;
+  }
+}
+
 // Submit operations checklist (Department/Service, Location, Asset, Shift)
 exports.submitAudit = async (req, res) => {
   try {
-    const { departmentId, formTemplateId, items, location, asset, shift, locationId, assetId, shiftId, assignedToUserId, auditDate: auditDateInput, auditTime: auditTimeInput } = req.body;
+    const {
+      departmentId,
+      formTemplateId,
+      items,
+      location,
+      asset,
+      shift,
+      locationId,
+      assetId,
+      shiftId,
+      assignedToUserId,
+      auditDate: auditDateInput,
+      auditTime: auditTimeInput,
+      patientUhid,
+      patientName,
+    } = req.body;
     const userId = req.user?.sub || req.user?._id || req.user?.id;
 
     if (!userId) {
@@ -27,8 +75,10 @@ exports.submitAudit = async (req, res) => {
     const shiftStr = (shift != null && String(shift).trim()) ? String(shift).trim() : '';
 
     let departmentForSubmission = departmentId;
+    let clinicalUhid = '';
+    let clinicalName = '';
     if (formTemplateId) {
-      const form = await FormTemplate.findById(formTemplateId).select('departments').lean();
+      const form = await FormTemplate.findById(formTemplateId).select('departments formContext').lean();
       if (form?.departments?.length) {
         const bodyDeptStr = (departmentId && departmentId.toString) ? departmentId.toString() : String(departmentId);
         const formDeptIds = form.departments.map((d) => (d && d._id ? d._id.toString() : d.toString()));
@@ -36,6 +86,25 @@ exports.submitAudit = async (req, res) => {
           departmentForSubmission = departmentId;
         } else {
           departmentForSubmission = form.departments[0]._id || form.departments[0];
+        }
+      }
+      if (form?.formContext === 'CLINICAL') {
+        clinicalUhid = patientUhid != null ? String(patientUhid).trim() : '';
+        clinicalName = patientName != null ? String(patientName).trim() : '';
+        if (!clinicalUhid || !clinicalName) {
+          return res.status(400).json({
+            message: 'Patient UHID and patient name are required for clinical forms.',
+          });
+        }
+      }
+      if (form) {
+        const submitter = await User.findById(userId).select('role userContext').lean();
+        const bypassContext = submitter && ['SUPER_ADMIN', 'QA'].includes(submitter.role);
+        if (submitter && !bypassContext && !userMatchesFormContext(submitter.userContext, form.formContext)) {
+          return res.status(400).json({
+            message:
+              'Your user type does not match this form. Clinical-only users may use clinical forms only; non-clinical-only users may use non-clinical forms only (or ask for a “both” profile).',
+          });
         }
       }
     }
@@ -78,6 +147,9 @@ exports.submitAudit = async (req, res) => {
         auditDate,
         auditTime,
         isLocked: true,
+        ...(clinicalUhid
+          ? { patientUhid: clinicalUhid, patientName: clinicalName }
+          : {}),
       };
     });
 
@@ -99,7 +171,7 @@ exports.submitAudit = async (req, res) => {
 // User: fetch previous submissions; filter by department, location, asset, shift (ids or strings), date range
 exports.getSubmissions = async (req, res) => {
   try {
-    const { departmentId, location, asset, shift, locationId, shiftId, submittedBy, fromDate, toDate, limit = 500 } = req.query;
+    const { departmentId, location, asset, shift, locationId, shiftId, submittedBy, fromDate, toDate, formContext, patientUhid, limit = 500 } = req.query;
     const filter = {};
     if (departmentId) filter.department = toObjectId(departmentId) || departmentId;
     const locOid = toObjectId(locationId);
@@ -119,6 +191,21 @@ exports.getSubmissions = async (req, res) => {
         filter.submittedAt.$lte = end;
       }
     }
+
+    // Optional admin filter: clinical vs non-clinical templates
+    if (formContext === 'CLINICAL' || formContext === 'NON_CLINICAL') {
+      const formTemplateIds = await FormTemplate.find({ formContext }).distinct('_id');
+      filter.formTemplate = { $in: formTemplateIds };
+    }
+
+    if (patientUhid && String(patientUhid).trim()) {
+      const p = String(patientUhid).trim();
+      filter.patientUhid = {
+        $regex: new RegExp('^' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'),
+      };
+    }
+
+    await applyClinicalStaffReportScope(req, filter);
 
     const submissions = await AuditSubmission.find(filter)
       .populate('department', 'name code')
@@ -148,6 +235,16 @@ exports.getSubmissionsBySession = async (req, res) => {
       .lean();
     if (!doc) {
       return res.status(404).json({ message: 'Submission not found' });
+    }
+    try {
+      await assertClinicalStaffCanOpenSession(req, doc);
+    } catch (e) {
+      if (e.message === 'FORBIDDEN_SESSION') {
+        return res.status(403).json({
+          message: 'You can only open reports for your own clinical checklist submissions.',
+        });
+      }
+      throw e;
     }
     const submittedAt = new Date(doc.submittedAt);
     const start = new Date(submittedAt);
@@ -260,7 +357,7 @@ exports.uploadReviewerSessionSignature = async (req, res) => {
 // Report summary: completion %, overdue (non-compliant) count, rejection reasons, staff performance
 exports.getReportSummary = async (req, res) => {
   try {
-    const { fromDate, toDate, departmentId, locationId, shiftId } = req.query;
+    const { fromDate, toDate, departmentId, locationId, shiftId, formContext, patientUhid } = req.query;
     const match = {};
     if (departmentId) match.department = toObjectId(departmentId) || departmentId;
     const locOid = toObjectId(locationId);
@@ -276,6 +373,21 @@ exports.getReportSummary = async (req, res) => {
         match.submittedAt.$lte = end;
       }
     }
+
+    // Optional admin filter: clinical vs non-clinical templates
+    if (formContext === 'CLINICAL' || formContext === 'NON_CLINICAL') {
+      const formTemplateIds = await FormTemplate.find({ formContext }).distinct('_id');
+      match.formTemplate = { $in: formTemplateIds };
+    }
+
+    if (patientUhid && String(patientUhid).trim()) {
+      const p = String(patientUhid).trim();
+      match.patientUhid = {
+        $regex: new RegExp('^' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'),
+      };
+    }
+
+    await applyClinicalStaffReportScope(req, match);
 
     const sessionKey = {
       $concat: [
@@ -386,11 +498,19 @@ exports.getStats = async (req, res) => {
   try {
     // Check if clearance stats are requested (optional, as they're expensive)
     const includeClearance = req.query.includeClearance === 'true';
+    const { formContext } = req.query;
+
+    let formContextMatch = null;
+    if (formContext === 'CLINICAL' || formContext === 'NON_CLINICAL') {
+      const formTemplateIds = await FormTemplate.find({ formContext, isActive: true }).distinct('_id');
+      formContextMatch = { formTemplate: { $in: formTemplateIds } };
+    }
 
     // Parallel execution of basic stats queries
     const [deptStats, caseCounts, overall, uniqueCases] = await Promise.all([
       // Department stats aggregation
       AuditSubmission.aggregate([
+        ...(formContextMatch ? [{ $match: formContextMatch }] : []),
         {
           $group: {
             _id: '$department',
@@ -418,6 +538,7 @@ exports.getStats = async (req, res) => {
       ]),
       // Session counts: by department (session = same submittedAt second + submittedBy)
       AuditSubmission.aggregate([
+        ...(formContextMatch ? [{ $match: formContextMatch }] : []),
         {
           $group: {
             _id: {
@@ -435,6 +556,7 @@ exports.getStats = async (req, res) => {
       ]),
       // Overall stats aggregation
       AuditSubmission.aggregate([
+        ...(formContextMatch ? [{ $match: formContextMatch }] : []),
         {
           $group: {
             _id: null,
@@ -453,6 +575,7 @@ exports.getStats = async (req, res) => {
       ]),
       // Unique sessions (for totalCases: count distinct session keys)
       AuditSubmission.aggregate([
+        ...(formContextMatch ? [{ $match: formContextMatch }] : []),
         { $group: { _id: { $concat: [{ $dateToString: { format: '%Y-%m-%d', date: '$submittedAt' } }, '|', { $ifNull: ['$auditTime', ''] }, '|', { $ifNull: [{ $toString: '$submittedBy' }, ''] }] } } },
         { $count: 'total' },
       ]),
@@ -505,9 +628,11 @@ exports.getStats = async (req, res) => {
         // Process only departments that have stats
         for (const dept of statsWithCases) {
           const deptId = dept._id;
-          const assignedForms = allForms.filter(form => 
-            form.departments.some(d => d._id?.toString() === deptId?.toString()) || form.isCommon
-          );
+          const assignedForms = allForms.filter((form) => {
+            const contextOk = formContextMatch ? form.formContext === formContext : true;
+            const deptOk = form.departments.some((d) => d._id?.toString() === deptId?.toString()) || form.isCommon;
+            return contextOk && deptOk;
+          });
 
           for (const form of assignedForms) {
             const itemCount = formItemCountMap[form._id?.toString()];

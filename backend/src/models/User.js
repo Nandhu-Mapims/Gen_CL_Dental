@@ -19,6 +19,12 @@ const userSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     /** Public URL path served from /uploads/signatures/... (supervisor signature image) */
     signatureImage: { type: String, trim: true, default: '' },
+    // NON_CLINICAL default: existing production users without this field are treated as non-clinical in API/UI.
+    userContext: {
+      type: String,
+      enum: ['NON_CLINICAL', 'CLINICAL', 'BOTH'],
+      default: 'NON_CLINICAL',
+    },
   },
   { timestamps: true }
 );

@@ -1,5 +1,6 @@
 const FormTemplate = require('../models/FormTemplate');
 const User = require('../models/User');
+const { userMatchesFormContext } = require('../utils/formContextAccess');
 
 // Assign users to a form template
 exports.assignUsersToForm = async (req, res) => {
@@ -16,11 +17,19 @@ exports.assignUsersToForm = async (req, res) => {
       return res.status(404).json({ message: 'Form template not found' });
     }
 
-    // Verify all user IDs exist; admin can assign any staff (no department restriction)
+    const formCtx = formTemplate.formContext || 'NON_CLINICAL';
+
+    // Verify all user IDs exist; each user's profile must match this form's type (clinical vs non-clinical)
     if (userIds.length > 0) {
       const users = await User.find({ _id: { $in: userIds } }).populate('department', '_id');
       if (users.length !== userIds.length) {
         return res.status(400).json({ message: 'One or more user IDs are invalid' });
+      }
+      const mismatched = users.filter((u) => !userMatchesFormContext(u.userContext, formCtx));
+      if (mismatched.length > 0) {
+        return res.status(400).json({
+          message: `These users cannot be assigned to a ${formCtx} form (check User Management — clinical / non-clinical / both): ${mismatched.map((u) => u.name || u.email).join(', ')}`,
+        });
       }
     }
 
@@ -62,14 +71,22 @@ exports.getAccessibleForms = async (req, res) => {
     }
 
     // Admin only allocates: auditors/chiefs see only forms they are explicitly assigned to (or common forms).
-    // Department on form is a label only; no same-department default access.
-    const forms = await FormTemplate.find({
+    // Clinical-only / non-clinical-only users never see the other form type (even if mis-assigned).
+    const uc = user.userContext || 'NON_CLINICAL';
+    const query = {
       isActive: true,
       $or: [
         { assignedUsers: userId }, // Explicitly assigned by admin (cross-audit only)
         { isCommon: true },       // Common forms for all
       ],
-    })
+    };
+    if (uc === 'CLINICAL') {
+      query.formContext = 'CLINICAL';
+    } else if (uc === 'NON_CLINICAL') {
+      query.formContext = 'NON_CLINICAL';
+    }
+
+    const forms = await FormTemplate.find(query)
       .populate('departments', 'name code')
       .populate('assignedUsers', 'name email')
       .sort({ name: 1 });

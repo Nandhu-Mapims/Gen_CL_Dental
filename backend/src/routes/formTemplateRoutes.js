@@ -7,13 +7,15 @@ const auth = require('../middleware/auth');
 // Admin: create form template (department required for analytics - form belongs to one department)
 router.post('/', auth('SUPER_ADMIN'), async (req, res) => {
   try {
-    const { name, description, departmentIds, isCommon, isActive, sections } = req.body;
+    const { name, description, departmentIds, isCommon, isActive, sections, formContext } = req.body;
     const deptIds = Array.isArray(departmentIds) ? departmentIds : [];
     if (deptIds.length === 0) {
       return res.status(400).json({
         message: 'Please select the department this form belongs to (required for analytics).',
       });
     }
+    const ctx =
+      formContext === 'CLINICAL' || formContext === 'NON_CLINICAL' ? formContext : 'NON_CLINICAL';
     const form = await FormTemplate.create({
       name,
       description,
@@ -21,6 +23,7 @@ router.post('/', auth('SUPER_ADMIN'), async (req, res) => {
       isCommon: !!isCommon,
       sections: sections || [],
       isActive: isActive !== undefined ? isActive : true,
+      formContext: ctx,
     });
     res.status(201).json(form);
   } catch (err) {
@@ -60,13 +63,15 @@ router.get('/:id', auth(['SUPER_ADMIN', 'QA', 'DEPT_ADMIN', 'SUPERVISOR', 'STAFF
 router.put('/:id', auth('SUPER_ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, departmentIds, isCommon, isActive, sections } = req.body;
+    const { name, description, departmentIds, isCommon, isActive, sections, formContext } = req.body;
     const deptIds = Array.isArray(departmentIds) ? departmentIds : [];
     if (deptIds.length === 0) {
       return res.status(400).json({
         message: 'Please select the department this form belongs to (required for analytics).',
       });
     }
+    const ctx =
+      formContext === 'CLINICAL' || formContext === 'NON_CLINICAL' ? formContext : 'NON_CLINICAL';
     const updateData = {
       name,
       description,
@@ -74,6 +79,7 @@ router.put('/:id', auth('SUPER_ADMIN'), async (req, res) => {
       isCommon: isCommon !== undefined ? isCommon : false,
       sections: sections || [],
       isActive: isActive !== undefined ? isActive : true,
+      formContext: ctx,
     };
     
     console.log(`[DEBUG] Update data:`, JSON.stringify(updateData, null, 2));

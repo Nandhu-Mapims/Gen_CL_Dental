@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { apiClient } from '../../api/client'
+import { useAuth } from '../../context/AuthContext'
 
 export function DepartmentLogs() {
+  const { user: authUser } = useAuth()
   const [logs, setLogs] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -11,6 +13,21 @@ export function DepartmentLogs() {
   const [previewData, setPreviewData] = useState(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [searchByDept, setSearchByDept] = useState({})
+
+  const userContext =
+    authUser?.userContext === 'CLINICAL' || authUser?.userContext === 'NON_CLINICAL' || authUser?.userContext === 'BOTH'
+      ? authUser.userContext
+      : 'NON_CLINICAL'
+  const canSplitFormTypes = userContext === 'BOTH'
+  const [departmentLogFormContextMode, setDepartmentLogFormContextMode] = useState('BOTH')
+  const effectiveFormContext =
+    canSplitFormTypes
+      ? departmentLogFormContextMode === 'BOTH'
+        ? ''
+        : departmentLogFormContextMode
+      : userContext === 'CLINICAL'
+        ? 'CLINICAL'
+        : 'NON_CLINICAL'
 
   // Build structured preview from flat submissions array
   const buildPreviewFromSubmissions = (submissions) => {
@@ -64,12 +81,13 @@ export function DepartmentLogs() {
 
   useEffect(() => {
     loadLogs()
-  }, [])
+  }, [departmentLogFormContextMode, canSplitFormTypes])
 
   const loadLogs = async () => {
     try {
       setError(null)
-      const data = await apiClient.get('/departments/logs')
+      const qs = canSplitFormTypes && effectiveFormContext ? `?formContext=${encodeURIComponent(effectiveFormContext)}` : ''
+      const data = await apiClient.get(`/departments/logs${qs}`)
       setLogs(data)
     } catch (err) {
       console.error('Error loading department logs', err)
@@ -209,8 +227,33 @@ export function DepartmentLogs() {
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="bg-white/95 backdrop-blur-md border border-maroon-200/50 rounded-2xl shadow-xl px-5 py-4 sm:py-5">
-        <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900">Department Activity Logs</h1>
-        <p className="mt-1 text-sm text-slate-600">Department-wise view of audit submissions</p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900">Department Activity Logs</h1>
+            <p className="mt-1 text-sm text-slate-600">Department-wise view of audit submissions</p>
+          </div>
+          {canSplitFormTypes ? (
+            <div className="sm:w-[320px]">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Form type</label>
+              <select
+                value={departmentLogFormContextMode}
+                onChange={(e) => setDepartmentLogFormContextMode(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
+              >
+                <option value="BOTH">Clinical & Non-clinical</option>
+                <option value="CLINICAL">Clinical</option>
+                <option value="NON_CLINICAL">Non-clinical</option>
+              </select>
+            </div>
+          ) : (
+            <div className="sm:w-[320px]">
+              <div className="text-xs font-semibold text-slate-800">
+                {effectiveFormContext === 'CLINICAL' ? 'Clinical forms only' : 'Non-clinical forms only'}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">Auto-filtered by your profile</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Summary Cards */}

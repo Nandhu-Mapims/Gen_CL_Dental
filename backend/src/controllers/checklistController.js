@@ -1,5 +1,7 @@
 const ChecklistItem = require('../models/ChecklistItem');
 const Department = require('../models/Department');
+const User = require('../models/User');
+const { userMatchesFormContext } = require('../utils/formContextAccess');
 
 // Admin: create checklist item
 exports.createChecklistItem = async (req, res) => {
@@ -296,6 +298,15 @@ exports.getChecklistForDepartment = async (req, res) => {
       const userId = req.user?.sub ? new mongoose.Types.ObjectId(req.user.sub) : null;
       const adminRoles = ['SUPER_ADMIN', 'QA', 'DEPT_ADMIN'];
       const isAdmin = adminRoles.includes(req.user?.role);
+
+      if (!isAdmin && userId) {
+        const dbUser = await User.findById(userId).select('userContext').lean();
+        const uc = dbUser?.userContext || 'NON_CLINICAL';
+        const fc = formTemplate.formContext || 'NON_CLINICAL';
+        if (!userMatchesFormContext(uc, fc)) {
+          return res.json([]);
+        }
+      }
 
       let hasAccess = false;
       if (isAdmin) {

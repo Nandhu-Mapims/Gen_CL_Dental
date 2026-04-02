@@ -6,6 +6,14 @@ const { JWT_SECRET } = require('../config/env');
 const User = require('../models/User');
 const { ROLES } = require('../models/User');
 
+/** Stored preference for reporting/filters; missing in DB = non-clinical (legacy). Changing this only updates the user row — never deletes submissions. */
+function apiUserContext(user) {
+  if (!user) return 'NON_CLINICAL';
+  if (user.userContext === 'CLINICAL') return 'CLINICAL';
+  if (user.userContext === 'BOTH') return 'BOTH';
+  return 'NON_CLINICAL';
+}
+
 function resolveSignatureDiskPath(publicUrl) {
   if (!publicUrl || typeof publicUrl !== 'string') return null;
   const trimmed = publicUrl.trim();
@@ -64,11 +72,12 @@ exports.registerAdmin = async (req, res) => {
       return res.status(400).json({ message: 'Email already registered' });
     }
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.create({ 
-      name: name.trim(), 
-      email: email.toLowerCase().trim(), 
-      passwordHash, 
-      role: 'SUPER_ADMIN' 
+    const user = await User.create({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      passwordHash,
+      role: 'SUPER_ADMIN',
+      userContext: 'NON_CLINICAL',
     });
     res.status(201).json({ id: user._id, email: user.email });
   } catch (err) {
@@ -104,6 +113,14 @@ exports.registerUser = async (req, res) => {
       return res.status(400).json({ message: 'Email already registered' });
     }
     const passwordHash = await bcrypt.hash(password, 10);
+    let userContext = 'NON_CLINICAL';
+    if (
+      req.body.userContext === 'CLINICAL' ||
+      req.body.userContext === 'NON_CLINICAL' ||
+      req.body.userContext === 'BOTH'
+    ) {
+      userContext = req.body.userContext;
+    }
     const user = await User.create({
       name: name.trim(),
       email: email.toLowerCase().trim(),
@@ -111,6 +128,7 @@ exports.registerUser = async (req, res) => {
       role,
       designation: designation?.trim() || undefined,
       department: ['STAFF', 'SUPERVISOR', 'DEPT_ADMIN'].includes(role) ? departmentId : undefined,
+      userContext,
     });
     const populated = await User.findById(user._id).populate('department');
     res.status(201).json({
@@ -121,6 +139,7 @@ exports.registerUser = async (req, res) => {
       role: user.role,
       designation: user.designation,
       department: populated.department,
+      userContext: apiUserContext(user),
     });
   } catch (err) {
     console.error('registerUser error', err);
@@ -199,6 +218,7 @@ exports.login = async (req, res) => {
         role: user.role,
         designation: user.designation || null,
         department: departmentInfo,
+        userContext: apiUserContext(user),
       },
     });
   } catch (err) {
@@ -242,7 +262,13 @@ exports.listUsers = async (req, res) => {
       .select('-passwordHash')
       .populate('department', 'name code')
       .sort({ createdAt: -1 });
-    res.json(users);
+    res.json(
+      users.map((u) => {
+        const o = u.toObject();
+        o.userContext = apiUserContext(u);
+        return o;
+      })
+    );
   } catch (err) {
     console.error('listUsers error', err);
     res.status(500).json({ message: 'Server error' });
@@ -252,7 +278,7 @@ exports.listUsers = async (req, res) => {
 exports.updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, role, isActive, departmentId, designation, password } = req.body;
+    const { name, email, role, isActive, departmentId, designation, password, userContext } = req.body;
 
     const existingUser = await User.findById(id).select('role signatureImage');
     if (!existingUser) return res.status(404).json({ message: 'User not found' });
@@ -308,11 +334,17 @@ exports.updateUser = async (req, res) => {
       update.department = undefined;
     }
 
+    if (userContext === 'CLINICAL' || userContext === 'NON_CLINICAL' || userContext === 'BOTH') {
+      update.userContext = userContext;
+    }
+
     const user = await User.findByIdAndUpdate(id, update, { new: true, runValidators: true })
       .select('-passwordHash')
       .populate('department', 'name code');
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json(user);
+    const out = user.toObject();
+    out.userContext = apiUserContext(user);
+    res.json(out);
   } catch (err) {
     console.error('updateUser error', err);
     res.status(500).json({ message: 'Server error' });

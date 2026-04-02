@@ -14,6 +14,12 @@ function supervisorSignaturePublicUrl(storedPath) {
   return p
 }
 
+function displayUserContext(user) {
+  if (user?.userContext === 'BOTH') return 'Both (all forms)'
+  if (user?.userContext === 'CLINICAL') return 'Clinical'
+  return 'Non-clinical'
+}
+
 const ROLE_OPTIONS = [
   { value: '', label: 'All roles' },
   { value: 'SUPER_ADMIN', label: 'Super Admin' },
@@ -56,6 +62,7 @@ export function UserManagement() {
     designation: '',
     departmentId: '',
     isActive: true,
+    userContext: 'NON_CLINICAL',
   })
 
   const passwordRules = [
@@ -331,6 +338,7 @@ export function UserManagement() {
         designation: '',
         departmentId: '',
         isActive: true,
+        userContext: 'NON_CLINICAL',
       })
       loadUsers()
     } catch (err) {
@@ -367,6 +375,12 @@ export function UserManagement() {
       designation: user.designation || '',
       departmentId: user.department?._id || user.department?.id || '',
       isActive: user.isActive !== undefined ? user.isActive : true,
+      userContext:
+        user.userContext === 'CLINICAL'
+          ? 'CLINICAL'
+          : user.userContext === 'BOTH'
+            ? 'BOTH'
+            : 'NON_CLINICAL',
     })
     setShowForm(true)
   }
@@ -427,6 +441,7 @@ export function UserManagement() {
               designation: '',
               departmentId: '',
               isActive: true,
+              userContext: 'NON_CLINICAL',
             })
           }}
           className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg shadow-sm transition-colors text-xs sm:text-sm font-medium"
@@ -560,10 +575,11 @@ export function UserManagement() {
                 value={formData.role}
                 onChange={(e) => {
                   const newRole = e.target.value
+                  const isAdminRole = ['SUPER_ADMIN', 'QA'].includes(newRole)
                   setFormData({
                     ...formData,
                     role: newRole,
-                    departmentId: ['SUPER_ADMIN', 'QA'].includes(newRole) ? '' : formData.departmentId,
+                    departmentId: isAdminRole ? '' : formData.departmentId,
                   })
                 }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
@@ -574,6 +590,47 @@ export function UserManagement() {
                 <option value="QA">QA</option>
                 <option value="SUPER_ADMIN">Super Admin</option>
               </select>
+            </div>
+
+            <div>
+              <span className="block text-sm font-medium text-slate-700 mb-2">User type</span>
+              <p className="text-xs text-slate-600 mb-2">
+                Default is <strong>non-clinical</strong> for new users and for older accounts that never had this field (same as production).
+                You can switch to <strong>clinical</strong>, <strong>non-clinical</strong>, or <strong>both</strong> at any time—this only updates the profile; it does{' '}
+                <strong>not</strong> delete past audit submissions or checklist history.
+              </p>
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                  <input
+                    type="radio"
+                    name="userContext"
+                    checked={formData.userContext === 'NON_CLINICAL'}
+                    onChange={() => setFormData({ ...formData, userContext: 'NON_CLINICAL' })}
+                    className="text-maroon-600 border-slate-300 focus:ring-maroon-500"
+                  />
+                  Non-clinical
+                </label>
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                  <input
+                    type="radio"
+                    name="userContext"
+                    checked={formData.userContext === 'CLINICAL'}
+                    onChange={() => setFormData({ ...formData, userContext: 'CLINICAL' })}
+                    className="text-maroon-600 border-slate-300 focus:ring-maroon-500"
+                  />
+                  Clinical
+                </label>
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                  <input
+                    type="radio"
+                    name="userContext"
+                    checked={formData.userContext === 'BOTH'}
+                    onChange={() => setFormData({ ...formData, userContext: 'BOTH' })}
+                    className="text-maroon-600 border-slate-300 focus:ring-maroon-500"
+                  />
+                  Both (clinical and non-clinical workflows)
+                </label>
+              </div>
             </div>
 
             <div>
@@ -938,6 +995,7 @@ export function UserManagement() {
                 </div>
               </th>
               <th className="text-left px-4 lg:px-6 py-3 lg:py-4 font-semibold text-xs lg:text-sm text-slate-700 uppercase tracking-wide">Designation</th>
+              <th className="text-left px-4 lg:px-6 py-3 lg:py-4 font-semibold text-xs lg:text-sm text-slate-700 uppercase tracking-wide">User type</th>
               <th className="text-left px-4 lg:px-6 py-3 lg:py-4 font-semibold text-xs lg:text-sm text-slate-700 uppercase tracking-wide">
                 <div className="relative inline-block" ref={departmentDropdownRef}>
                   <button
@@ -1000,7 +1058,7 @@ export function UserManagement() {
           <tbody className="divide-y divide-slate-200">
             {filteredUsers.length === 0 ? (
               <tr>
-                <td colSpan="9" className="px-6 py-8 text-center text-slate-500 text-sm">
+                <td colSpan="10" className="px-6 py-8 text-center text-slate-500 text-sm">
                   {users.length === 0
                     ? 'No users found. Click "Create New User" to add users.'
                     : `No users match.${roleFilter ? ` Role: ${roleFilterLabel}.` : ''}${departmentFilter ? ` Department: ${departmentFilterLabel}.` : ''}`}
@@ -1022,6 +1080,19 @@ export function UserManagement() {
                   </td>
                   <td className="px-4 lg:px-6 py-3 lg:py-4 text-xs lg:text-sm text-slate-600">
                     {user.designation || '—'}
+                  </td>
+                  <td className="px-4 lg:px-6 py-3 lg:py-4">
+                    <span
+                      className={`px-2 lg:px-3 py-1 rounded-full text-xs font-medium ${
+                        user.userContext === 'BOTH'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : user.userContext === 'CLINICAL'
+                            ? 'bg-sky-50 text-sky-800 border border-sky-200'
+                            : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {displayUserContext(user)}
+                    </span>
                   </td>
                   <td className="px-4 lg:px-6 py-3 lg:py-4 text-xs lg:text-sm text-slate-600">
                     {user.department
@@ -1125,6 +1196,10 @@ export function UserManagement() {
                     <span className="text-slate-700 font-medium">{user.designation}</span>
                   </div>
                 )}
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">User type:</span>
+                  <span className="text-slate-700 font-medium">{displayUserContext(user)}</span>
+                </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">Department:</span>
                   <span className="text-slate-700 font-medium">

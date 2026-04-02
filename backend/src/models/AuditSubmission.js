@@ -49,6 +49,10 @@ const auditSubmissionSchema = new mongoose.Schema(
     reviewerSignatureImage: { type: String, trim: true, default: '' }, // supervisor/reviewer signature during review
     reviewerSignatureAt: { type: Date, default: null },
     reviewerSignatureBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+
+    // Clinical audit context (optional; set when form template is CLINICAL)
+    patientUhid: { type: String, trim: true, default: '' },
+    patientName: { type: String, trim: true, default: '' },
   },
   { timestamps: true }
 );

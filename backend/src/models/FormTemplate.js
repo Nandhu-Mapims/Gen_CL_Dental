@@ -29,6 +29,12 @@ const formTemplateSchema = new mongoose.Schema(
       },
     ],
     isActive: { type: Boolean, default: true },
+    // NON_CLINICAL: operational checklist (location, questions). CLINICAL: patient-linked audit (UHID, name).
+    formContext: {
+      type: String,
+      enum: ['NON_CLINICAL', 'CLINICAL'],
+      default: 'NON_CLINICAL',
+    },
   },
   { timestamps: true }
 );

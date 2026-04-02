@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { apiClient } from '../../api/client'
 import { useAuth } from '../../context/AuthContext'
 import { Link } from 'react-router-dom'
-import { useNavigate } from 'react-router-dom'
 
 export function AuditorDashboard() {
   const { user } = useAuth()
@@ -154,10 +153,12 @@ export function AuditorDashboard() {
                 <tr>
                   <th className="text-left p-3 font-semibold text-slate-700 w-12">#</th>
                   <th className="text-left p-3 font-semibold text-slate-700">Date</th>
+                  <th className="text-left p-3 font-semibold text-slate-700">UHID</th>
+                  <th className="text-left p-3 font-semibold text-slate-700">Patient name</th>
+                  <th className="text-left p-3 font-semibold text-slate-700">Dept</th>
                   <th className="text-left p-3 font-semibold text-slate-700">Location</th>
                   <th className="text-left p-3 font-semibold text-slate-700">Shift</th>
                   <th className="text-left p-3 font-semibold text-slate-700">Form</th>
-                  <th className="text-left p-3 font-semibold text-slate-700">Department</th>
                   <th className="text-left p-3 font-semibold text-slate-700">Checklist Item</th>
                   <th className="text-left p-3 font-semibold text-slate-700">Response</th>
                 </tr>
@@ -169,10 +170,12 @@ export function AuditorDashboard() {
                     <td className="p-3 text-slate-600">
                       {new Date(sub.submittedAt).toLocaleDateString()}
                     </td>
+                    <td className="p-3 text-slate-600 font-mono text-xs">{sub.patientUhid?.trim() || '—'}</td>
+                    <td className="p-3 text-slate-600">{sub.patientName?.trim() || '—'}</td>
+                    <td className="p-3 text-slate-600">{sub.department?.name || '—'}</td>
                     <td className="p-3 text-slate-600">{sub.location || sub.locationId?.areaName || '—'}</td>
                     <td className="p-3 text-slate-600">{sub.shift || sub.shiftId?.name || '—'}</td>
                     <td className="p-3 font-medium text-slate-800">{sub.formTemplate?.name || '—'}</td>
-                    <td className="p-3 text-slate-600">{sub.department?.name}</td>
                     <td className="p-3 text-slate-600">{sub.checklistItemId?.label || 'N/A'}</td>
                     <td className="p-3">
                       <span
@@ -257,6 +260,7 @@ export function AuditorDashboard() {
         <ol className="list-decimal list-inside space-y-1 text-sm text-slate-700">
           <li>Click on a form from the navigation bar or Quick Actions above</li>
           <li>Select Department, Location (Zone / Floor / Ward), and Shift</li>
+          <li>For clinical forms, enter the patient UHID and patient name</li>
           <li>Optionally select the Unit Supervisor from the dropdown</li>
           <li>Fill out all checklist items (YES/NO responses)</li>
           <li>Add remarks if needed</li>

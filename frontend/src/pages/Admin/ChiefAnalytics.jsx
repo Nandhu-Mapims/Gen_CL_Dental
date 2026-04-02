@@ -1,20 +1,37 @@
 import { useEffect, useState } from 'react'
 import { apiClient } from '../../api/client'
+import { useAuth } from '../../context/AuthContext'
 
 export function ChiefAnalytics() {
+  const { user: authUser } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [data, setData] = useState(null)
+  const userContext =
+    authUser?.userContext === 'CLINICAL' || authUser?.userContext === 'NON_CLINICAL' || authUser?.userContext === 'BOTH'
+      ? authUser.userContext
+      : 'NON_CLINICAL'
+  const canSplitFormTypes = userContext === 'BOTH'
+  const [chiefAnalyticsMode, setChiefAnalyticsMode] = useState('BOTH') // BOTH | CLINICAL | NON_CLINICAL
 
   useEffect(() => {
     loadAnalytics()
-  }, [])
+  }, [chiefAnalyticsMode, userContext])
 
   const loadAnalytics = async () => {
     try {
       setError('')
       setLoading(true)
-      const res = await apiClient.get('/chief/admin/analytics')
+      const effectiveFormContext = canSplitFormTypes
+        ? chiefAnalyticsMode === 'BOTH'
+          ? ''
+          : chiefAnalyticsMode
+        : userContext === 'CLINICAL'
+          ? 'CLINICAL'
+          : 'NON_CLINICAL'
+      const res = await apiClient.get(
+        effectiveFormContext ? `/chief/admin/analytics?formContext=${encodeURIComponent(effectiveFormContext)}` : '/chief/admin/analytics'
+      )
       setData(res)
     } catch (err) {
       console.error('Error loading chief analytics', err)
@@ -85,13 +102,34 @@ export function ChiefAnalytics() {
             </p>
             <p className="text-xs text-slate-500 mt-1">Generated: {formatDate(generatedAt)}</p>
           </div>
-          <button
-            onClick={loadAnalytics}
-            disabled={loading}
-            className="px-4 py-2 bg-maroon-600 hover:bg-maroon-700 disabled:bg-slate-400 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
+            {canSplitFormTypes ? (
+              <div className="sm:w-[240px]">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Form type</label>
+                <select
+                  value={chiefAnalyticsMode}
+                  onChange={(e) => setChiefAnalyticsMode(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
+                >
+                  <option value="BOTH">Clinical & Non-clinical</option>
+                  <option value="CLINICAL">Clinical</option>
+                  <option value="NON_CLINICAL">Non-clinical</option>
+                </select>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-600 sm:w-[240px]">
+                Mode: <span className="font-semibold">{userContext === 'CLINICAL' ? 'Clinical' : 'Non-clinical'}</span>
+              </div>
+            )}
+
+            <button
+              onClick={loadAnalytics}
+              disabled={loading}
+              className="px-4 py-2 bg-maroon-600 hover:bg-maroon-700 disabled:bg-slate-400 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
         </div>
       </div>
 

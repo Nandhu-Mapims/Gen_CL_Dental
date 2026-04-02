@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { apiClient } from '../../api/client'
+import { useAuth } from '../../context/AuthContext'
 import {
   BarChart,
   Bar,
@@ -21,14 +22,30 @@ import {
 const COLORS = ['#3b82f6', '#2563eb', '#1d4ed8', '#1e40af', '#60a5fa', '#93c5fd', '#dbeafe']
 
 export function Dashboard() {
+  const { user: authUser } = useAuth()
   const [stats, setStats] = useState(null)
   const [departments, setDepartments] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  const userContext =
+    authUser?.userContext === 'CLINICAL' || authUser?.userContext === 'NON_CLINICAL' || authUser?.userContext === 'BOTH'
+      ? authUser.userContext
+      : 'NON_CLINICAL'
+  const canSplitFormTypes = userContext === 'BOTH'
+  const [dashboardFormContextMode, setDashboardFormContextMode] = useState('BOTH') // BOTH | CLINICAL | NON_CLINICAL
+  const effectiveFormContext = canSplitFormTypes
+    ? dashboardFormContextMode === 'BOTH'
+      ? ''
+      : dashboardFormContextMode
+    : userContext === 'CLINICAL'
+      ? 'CLINICAL'
+      : 'NON_CLINICAL'
+
   useEffect(() => {
+    if (!authUser) return
     loadData()
-  }, [])
+  }, [authUser, dashboardFormContextMode, canSplitFormTypes])
 
   const loadData = async () => {
     try {
@@ -37,7 +54,7 @@ export function Dashboard() {
       // Load basic stats first (without clearance stats for faster response)
       // Clearance stats can be loaded separately if needed
       const [statData, deptData] = await Promise.all([
-        apiClient.get('/audits/stats?includeClearance=false'),
+        apiClient.get(`/audits/stats?includeClearance=false${effectiveFormContext ? `&formContext=${encodeURIComponent(effectiveFormContext)}` : ''}`),
         apiClient.get('/departments'),
       ])
       setStats(statData)
@@ -204,6 +221,26 @@ export function Dashboard() {
             ADMIN ROLE
           </span>
         </div>
+        {canSplitFormTypes ? (
+          <div className="mt-3 flex items-end gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Dashboard mode</label>
+              <select
+                value={dashboardFormContextMode}
+                onChange={(e) => setDashboardFormContextMode(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
+              >
+                <option value="BOTH">Clinical & Non-clinical</option>
+                <option value="CLINICAL">Clinical</option>
+                <option value="NON_CLINICAL">Non-clinical</option>
+              </select>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 text-xs text-slate-600">
+            Mode: <span className="font-semibold">{effectiveFormContext === 'CLINICAL' ? 'Clinical' : 'Non-clinical'}</span>
+          </div>
+        )}
       </div>
 
       {/* Summary Cards */}
