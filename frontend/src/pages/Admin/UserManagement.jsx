@@ -1,18 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { apiClient } from '../../api/client'
-
-function supervisorSignaturePublicUrl(storedPath) {
-  if (!storedPath || typeof storedPath !== 'string') return ''
-  if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) return storedPath
-  const p = storedPath.startsWith('/') ? storedPath : `/${storedPath}`
-  const apiBase = import.meta.env?.VITE_API_URL
-  if (apiBase) {
-    const origin = String(apiBase).replace(/\/api\/?$/i, '')
-    return `${origin}${p}`
-  }
-  if (typeof window !== 'undefined') return `${window.location.origin}${p}`
-  return p
-}
+import { resolveUploadUrl } from '../../utils/resolveUploadUrl'
 
 function displayUserContext(user) {
   if (user?.userContext === 'BOTH') return 'Both (all forms)'
@@ -857,7 +845,7 @@ export function UserManagement() {
                       <p className="text-xs font-medium text-slate-600 mb-1">Preview</p>
                       <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
                         <img
-                          src={signaturePreviewLocal ?? supervisorSignaturePublicUrl(editingUser?.signatureImage)}
+                          src={signaturePreviewLocal ?? resolveUploadUrl(editingUser?.signatureImage)}
                           alt="Signature preview"
                           className="max-h-24 max-w-[220px] object-contain"
                         />

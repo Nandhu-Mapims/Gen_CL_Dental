@@ -1,19 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { apiClient } from '../../api/client'
 import { useAuth } from '../../context/AuthContext'
-
-function resolveUploadUrl(storedPath) {
-  if (!storedPath || typeof storedPath !== 'string') return ''
-  if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) return storedPath
-  const p = storedPath.startsWith('/') ? storedPath : `/${storedPath}`
-  const apiBase = import.meta.env?.VITE_API_URL
-  if (apiBase) {
-    const origin = String(apiBase).replace(/\/api\/?$/i, '')
-    return `${origin}${p}`
-  }
-  if (typeof window !== 'undefined') return `${window.location.origin}${p}`
-  return p
-}
+import { resolveUploadUrl } from '../../utils/resolveUploadUrl'
 
 export function ChiefDashboard() {
   const { user } = useAuth()
