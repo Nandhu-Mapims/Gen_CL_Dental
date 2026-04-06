@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { apiClient } from '../../api/client'
+import { resolveUploadUrl } from '../../utils/resolveUploadUrl'
 import jsPDF from 'jspdf'
 import { autoTable } from 'jspdf-autotable'
 
@@ -17,19 +18,6 @@ function pdfSafeText(value) {
     })
     .join('')
     .slice(0, 8000)
-}
-
-function resolveUploadUrl(storedPath) {
-  if (!storedPath || typeof storedPath !== 'string') return ''
-  if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) return storedPath
-  const p = storedPath.startsWith('/') ? storedPath : `/${storedPath}`
-  const apiBase = import.meta.env?.VITE_API_URL
-  if (apiBase) {
-    const origin = String(apiBase).replace(/\/api\/?$/i, '')
-    return `${origin}${p}`
-  }
-  if (typeof window !== 'undefined') return `${window.location.origin}${p}`
-  return p
 }
 
 async function fetchImageAsDataUrl(absoluteUrl) {
