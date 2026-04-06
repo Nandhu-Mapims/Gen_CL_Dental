@@ -30,6 +30,8 @@ services:
       MONGO_URI: mongodb://mongo:27017/gen_cl_dental
       JWT_SECRET: ${JWT_SECRET:-general-checklist-jwt-secret-min-32-characters-long-for-docker}
       CORS_ORIGIN: ${CORS_ORIGIN:-https://gencl.mapims.edu.in}
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       mongo:
         condition: service_healthy
@@ -50,3 +52,4 @@ services:
 
 volumes:
   mongo_data:
+  uploads_data:
