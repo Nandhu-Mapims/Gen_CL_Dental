@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { apiClient } from '../../api/client'
 import { useAuth } from '../../context/AuthContext'
 import { resolveUploadUrl } from '../../utils/resolveUploadUrl'
+import { SIGNATURE_CANVAS_STYLE } from '../../constants/signatureCanvas'
 
 export function ChiefDashboard() {
   const { user } = useAuth()
@@ -448,7 +449,7 @@ export function ChiefDashboard() {
                   <canvas
                     ref={reviewerCanvasRef}
                     className="touch-none block"
-                    style={{ width: 'clamp(200px, 20vw, 400px)', aspectRatio: '1 / 1', height: 'auto', background: '#fff', borderRadius: 4 }}
+                    style={SIGNATURE_CANVAS_STYLE}
                     onPointerDown={handleReviewerPointerDown}
                     onPointerMove={handleReviewerPointerMove}
                     onPointerUp={handleReviewerPointerUp}
