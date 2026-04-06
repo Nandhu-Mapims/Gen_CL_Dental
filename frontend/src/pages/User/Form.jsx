@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { apiClient } from '../../api/client'
 import { useAuth } from '../../context/AuthContext'
+import { SIGNATURE_CANVAS_STYLE } from '../../constants/signatureCanvas'
 
 const DRAFT_KEY_PREFIX = 'form_draft_'
 
@@ -57,13 +58,15 @@ export function Form() {
     return () => URL.revokeObjectURL(u)
   }, [signatureFile])
 
-  useEffect(() => {
+  const initStaffSignatureCanvas = useCallback(() => {
     const canvas = signatureCanvasRef.current
     if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
     const cssWidth = rect.width || 320
     const cssHeight = rect.height || 320
+    if (cssWidth < 8 || cssHeight < 8) return
+
     const dpr = window.devicePixelRatio || 1
 
     canvas.width = Math.floor(cssWidth * dpr)
@@ -576,6 +579,13 @@ export function Form() {
     return acc
   }, {})
   const allSectionNames = useMemo(() => Object.keys(itemsBySection).sort(), [itemsBySection])
+
+  // Canvas mounts only after sections load; initializing in an effect with [] runs before the ref exists.
+  useLayoutEffect(() => {
+    if (allSectionNames.length === 0) return
+    initStaffSignatureCanvas()
+  }, [allSectionNames.length, initStaffSignatureCanvas])
+
   const selectedSectionSet = useMemo(() => new Set(selectedSections), [selectedSections])
   const selectedItems = useMemo(
     () => items.filter((it) => selectedSectionSet.has(it.section || 'Other')),
@@ -1238,25 +1248,39 @@ export function Form() {
 
         {/* Submit Button */}
         {allSectionNames.length > 0 && (
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-maroon-200/50 p-4 space-y-4">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4 space-y-4">
             <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900">Staff signature</h3>
                 <p className="text-xs text-slate-600">
                   Draw your signature (required). Click “Save signature” before submitting.
                 </p>
-                <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
-                  <canvas
-                    ref={signatureCanvasRef}
-                    className="touch-none block"
-                    style={{ width: 'clamp(200px, 20vw, 400px)', aspectRatio: '1 / 1', height: 'auto', background: '#fff', borderRadius: 4 }}
-                    onPointerDown={handleSignaturePointerDown}
-                    onPointerMove={handleSignaturePointerMove}
-                    onPointerUp={handleSignaturePointerUp}
-                    onPointerLeave={handleSignaturePointerUp}
-                    onPointerCancel={handleSignaturePointerUp}
-                    aria-label="Draw staff signature canvas"
-                  />
+                <div className="flex flex-wrap items-end gap-4">
+                  <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                    <canvas
+                      ref={signatureCanvasRef}
+                      className="touch-none block"
+                      style={SIGNATURE_CANVAS_STYLE}
+                      onPointerDown={handleSignaturePointerDown}
+                      onPointerMove={handleSignaturePointerMove}
+                      onPointerUp={handleSignaturePointerUp}
+                      onPointerLeave={handleSignaturePointerUp}
+                      onPointerCancel={handleSignaturePointerUp}
+                      aria-label="Draw staff signature canvas"
+                    />
+                  </div>
+                  {signaturePreviewLocal && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-600 mb-1">Saved</p>
+                      <div className="border border-slate-300 rounded-md bg-white p-2 inline-block">
+                        <img
+                          src={signaturePreviewLocal}
+                          alt="Signature preview"
+                          className="max-h-24 w-[clamp(200px,20vw,400px)] object-contain"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
                   <button
@@ -1273,9 +1297,6 @@ export function Form() {
                   >
                     Save signature
                   </button>
-                  {signaturePreviewLocal && (
-                    <span className="text-xs text-emerald-700 font-medium">Saved</span>
-                  )}
                 </div>
                 {signatureError && <p className="text-xs text-red-600">{signatureError}</p>}
               </div>

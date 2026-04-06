@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { apiClient } from '../../api/client'
 import { resolveUploadUrl } from '../../utils/resolveUploadUrl'
+import { SIGNATURE_CANVAS_STYLE } from '../../constants/signatureCanvas'
 
 function displayUserContext(user) {
   if (user?.userContext === 'BOTH') return 'Both (all forms)'
@@ -82,8 +83,8 @@ export function UserManagement() {
     if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
-    const cssWidth = rect.width || 600
-    const cssHeight = rect.height || 200
+    const cssWidth = rect.width || 320
+    const cssHeight = rect.height || 320
     const dpr = window.devicePixelRatio || 1
 
     // Make internal canvas pixel size match displayed size
@@ -112,8 +113,8 @@ export function UserManagement() {
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
     return {
-      x: Math.max(0, Math.min(rect.width || 600, x)),
-      y: Math.max(0, Math.min(rect.height || 200, y)),
+      x: Math.max(0, Math.min(rect.width || 320, x)),
+      y: Math.max(0, Math.min(rect.height || 320, y)),
     }
   }
 
@@ -123,8 +124,8 @@ export function UserManagement() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const rect = canvas.getBoundingClientRect()
-    const cssWidth = rect.width || 600
-    const cssHeight = rect.height || 200
+    const cssWidth = rect.width || 320
+    const cssHeight = rect.height || 320
 
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, cssWidth, cssHeight)
@@ -807,7 +808,7 @@ export function UserManagement() {
                         <canvas
                           ref={signatureCanvasRef}
                           className="touch-none block"
-                          style={{ width: 600, maxWidth: '100%', aspectRatio: '1 / 1', height: 'auto', background: '#fff', borderRadius: 4 }}
+                          style={SIGNATURE_CANVAS_STYLE}
                           onPointerDown={handleSignaturePointerDown}
                           onPointerMove={handleSignaturePointerMove}
                           onPointerUp={handleSignaturePointerUp}
