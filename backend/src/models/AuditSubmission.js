@@ -63,5 +63,7 @@ auditSubmissionSchema.index({ department: 1, formTemplate: 1 });
 auditSubmissionSchema.index({ locationId: 1, assetId: 1, shiftId: 1 });
 auditSubmissionSchema.index({ department: 1, formTemplate: 1, submittedBy: 1, submittedAt: -1 });
 auditSubmissionSchema.index({ assignedToUserId: 1 });
+// Clinical: rate-limit lookups (department + UHID + recency)
+auditSubmissionSchema.index({ department: 1, patientUhid: 1, submittedAt: -1 });
 
 module.exports = mongoose.model('AuditSubmission', auditSubmissionSchema);

@@ -37,8 +37,35 @@ export function Form() {
   const [lastDraftSavedAt, setLastDraftSavedAt] = useState(null)
   const [patientUhid, setPatientUhid] = useState('')
   const [patientName, setPatientName] = useState('')
+  const [clinicalUhidWarning, setClinicalUhidWarning] = useState('')
+  const [clinicalUhidCheckLoading, setClinicalUhidCheckLoading] = useState(false)
 
   const isClinicalForm = formTemplate?.formContext === 'CLINICAL'
+
+  /** Same department resolution as submit (form’s allowed departments + user / picker). */
+  const resolvedDepartmentIdForUhidCheck = useMemo(() => {
+    if (!isClinicalForm || !formTemplate) return null
+    let userDeptId = null
+    if (user?.department) {
+      userDeptId =
+        typeof user.department === 'object'
+          ? user.department.id || user.department._id
+          : user.department
+    }
+    let dept = departmentId || userDeptId
+    if (!dept) return null
+    if (formTemplate.departments?.length) {
+      const formDeptIds = formTemplate.departments.map((d) =>
+        d && (d._id || d.id) ? String(d._id || d.id) : String(d)
+      )
+      const deptStr = String(dept)
+      if (!formDeptIds.includes(deptStr)) {
+        const first = formTemplate.departments[0]
+        dept = first?._id || first?.id || first
+      }
+    }
+    return dept ? String(dept) : null
+  }, [isClinicalForm, formTemplate, departmentId, user])
 
   // Staff signature (per submission)
   const signatureCanvasRef = useRef(null)
@@ -203,6 +230,53 @@ export function Form() {
       console.warn('Failed to save draft:', e)
     }
   }, [getDraftKey, departmentId, locationType, locationId, assetId, location, asset, answers, selectedSections, formTemplateId, formTemplate?.name, patientUhid, patientName])
+
+  useEffect(() => {
+    setClinicalUhidWarning('')
+  }, [departmentId, formTemplateId])
+
+  const handlePatientUhidBlur = useCallback(async () => {
+    if (!isClinicalForm) return
+    const u = patientUhid.trim()
+    if (!u) {
+      setClinicalUhidWarning('')
+      return
+    }
+    const deptId = resolvedDepartmentIdForUhidCheck
+    if (!deptId) {
+      setClinicalUhidWarning(
+        'Choose your department first. Then we can tell you if this UHID was already used by your department in the last 24 hours.'
+      )
+      return
+    }
+    setClinicalUhidCheckLoading(true)
+    try {
+      const q = new URLSearchParams({ departmentId: deptId, patientUhid: u })
+      const data = await apiClient.get(`/audits/check-duplicate?${q.toString()}`)
+      if (data?.exists) {
+        let after = ''
+        if (data.nextEligibleAt) {
+          try {
+            const t = new Date(data.nextEligibleAt)
+            if (!Number.isNaN(t.getTime())) {
+              after = ` You can submit again after ${t.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.`
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        setClinicalUhidWarning(
+          `Your department already submitted this UHID within the last 24 hours. You can only submit the same UHID again after 24 hours from that submission. Other departments can still use this UHID.${after}`
+        )
+      } else {
+        setClinicalUhidWarning('')
+      }
+    } catch {
+      setClinicalUhidWarning('')
+    } finally {
+      setClinicalUhidCheckLoading(false)
+    }
+  }, [isClinicalForm, patientUhid, resolvedDepartmentIdForUhidCheck])
 
   const availableLocationTypes = useMemo(() => {
     const TYPE_ORDER = ['ZONE', 'FLOOR', 'WARD', 'UNIT', 'ROOM', 'OTHER']
@@ -1029,12 +1103,29 @@ export function Form() {
                     <input
                       type="text"
                       value={patientUhid}
-                      onChange={(e) => setPatientUhid(e.target.value)}
+                      onChange={(e) => {
+                        setPatientUhid(e.target.value)
+                        setClinicalUhidWarning('')
+                      }}
+                      onBlur={handlePatientUhidBlur}
                       className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 transition-all border-slate-300 hover:border-slate-400"
                       placeholder="e.g. UHID000123"
                       autoComplete="off"
                       required={isClinicalForm}
+                      aria-describedby={clinicalUhidWarning ? 'clinical-uhid-hint' : undefined}
                     />
+                    {clinicalUhidCheckLoading && (
+                      <p className="text-xs text-slate-500 mt-1">Checking recent submissions for your department…</p>
+                    )}
+                    {clinicalUhidWarning && !clinicalUhidCheckLoading && (
+                      <p
+                        id="clinical-uhid-hint"
+                        className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mt-1.5"
+                        role="status"
+                      >
+                        {clinicalUhidWarning}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1.5 md:col-span-1">
                     <label className="block text-xs font-semibold text-slate-700">

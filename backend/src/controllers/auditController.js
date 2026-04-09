@@ -89,7 +89,7 @@ exports.submitAudit = async (req, res) => {
         }
       }
       if (form?.formContext === 'CLINICAL') {
-        clinicalUhid = patientUhid != null ? String(patientUhid).trim() : '';
+        clinicalUhid = patientUhid != null ? String(patientUhid).trim().toUpperCase() : '';
         clinicalName = patientName != null ? String(patientName).trim() : '';
         if (!clinicalUhid || !clinicalName) {
           return res.status(400).json({
@@ -120,6 +120,31 @@ exports.submitAudit = async (req, res) => {
       if (val === 'NO' && (!it.remarks || !String(it.remarks).trim())) {
         return res.status(400).json({
           message: 'Remarks are required when "NO" is selected. Please add remarks for all NO responses.',
+        });
+      }
+    }
+
+    if (clinicalUhid) {
+      const deptOid = toObjectId(departmentForSubmission);
+      if (!deptOid) {
+        return res.status(400).json({ message: 'Invalid department. Cannot submit clinical checklist.' });
+      }
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const uhidRegex = new RegExp('^' + clinicalUhid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i');
+      const recent = await AuditSubmission.findOne({
+        department: deptOid,
+        patientUhid: uhidRegex,
+        submittedAt: { $gte: twentyFourHoursAgo },
+      })
+        .sort({ submittedAt: -1 })
+        .select('submittedAt')
+        .lean();
+      if (recent?.submittedAt) {
+        const nextEligibleAt = new Date(new Date(recent.submittedAt).getTime() + 24 * 60 * 60 * 1000);
+        return res.status(409).json({
+          message:
+            'Your department has already submitted a checklist for this patient UHID in the last 24 hours. Other departments may still submit for the same UHID.',
+          nextEligibleAt: nextEligibleAt.toISOString(),
         });
       }
     }
@@ -762,6 +787,33 @@ exports.getStats = async (req, res) => {
 
 exports.checkDuplicateSubmission = async (req, res) => {
   try {
+    const { departmentId, patientUhid } = req.query;
+    if (!departmentId || !patientUhid || !String(patientUhid).trim()) {
+      return res.json({ exists: false });
+    }
+    const deptOid = toObjectId(departmentId);
+    if (!deptOid) {
+      return res.json({ exists: false });
+    }
+    const u = String(patientUhid).trim().toUpperCase();
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const uhidRegex = new RegExp('^' + u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i');
+    const recent = await AuditSubmission.findOne({
+      department: deptOid,
+      patientUhid: uhidRegex,
+      submittedAt: { $gte: twentyFourHoursAgo },
+    })
+      .sort({ submittedAt: -1 })
+      .select('submittedAt')
+      .lean();
+    if (recent?.submittedAt) {
+      const nextEligibleAt = new Date(new Date(recent.submittedAt).getTime() + 24 * 60 * 60 * 1000);
+      return res.json({
+        exists: true,
+        nextEligibleAt: nextEligibleAt.toISOString(),
+      });
+    }
     return res.json({ exists: false });
   } catch (err) {
     console.error('checkDuplicateSubmission error', err);
