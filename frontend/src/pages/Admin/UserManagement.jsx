@@ -2,11 +2,19 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { apiClient } from '../../api/client'
 import { resolveUploadUrl } from '../../utils/resolveUploadUrl'
 import { SIGNATURE_CANVAS_STYLE } from '../../constants/signatureCanvas'
+import { useAuth } from '../../context/AuthContext'
 
 function displayUserContext(user) {
   if (user?.userContext === 'BOTH') return 'Both (all forms)'
   if (user?.userContext === 'CLINICAL') return 'Clinical'
   return 'Non-clinical'
+}
+
+function normalizeUserContext(userContext) {
+  if (userContext === 'CLINICAL' || userContext === 'NON_CLINICAL' || userContext === 'BOTH') {
+    return userContext
+  }
+  return 'NON_CLINICAL'
 }
 
 const ROLE_OPTIONS = [
@@ -19,6 +27,7 @@ const ROLE_OPTIONS = [
 ]
 
 export function UserManagement() {
+  const { user: authUser } = useAuth()
   const [users, setUsers] = useState([])
   const [departments, setDepartments] = useState([])
   const [designations, setDesignations] = useState([])
@@ -40,9 +49,11 @@ export function UserManagement() {
   const [signatureError, setSignatureError] = useState('')
   const [signatureUploading, setSignatureUploading] = useState(false)
   const [signatureInputMode, setSignatureInputMode] = useState('upload') // 'upload' | 'draw'
+  const userFormRef = useRef(null)
   const signatureCanvasRef = useRef(null)
   const isCanvasDrawingRef = useRef(false)
   const didDrawSignatureRef = useRef(false)
+  const canManageUserContextRef = useRef(false)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -64,6 +75,12 @@ export function UserManagement() {
 
   const isPasswordStrong = passwordRules.every((rule) => rule.valid)
   const showPasswordRules = isPasswordFocused && !isPasswordStrong
+  const canManageUserContext = authUser?.role === 'SUPER_ADMIN' && authUser?.userContext === 'BOTH'
+  const currentAdminContext = normalizeUserContext(authUser?.userContext)
+
+  useEffect(() => {
+    canManageUserContextRef.current = canManageUserContext
+  }, [canManageUserContext])
 
 
   useEffect(() => {
@@ -287,15 +304,21 @@ export function UserManagement() {
     }
 
     try {
+      const sanitizedFormData = {
+        ...formData,
+        userContext: canManageUserContextRef.current
+          ? normalizeUserContext(formData.userContext)
+          : (editingUser ? normalizeUserContext(editingUser.userContext) : currentAdminContext),
+      }
       let savedUserId = editingUser?._id
       if (editingUser) {
-        const updateData = { ...formData }
+        const updateData = { ...sanitizedFormData }
         if (!updateData.password) {
           delete updateData.password
         }
         await apiClient.put(`/auth/users/${editingUser._id}`, updateData)
       } else {
-        const created = await apiClient.post('/auth/users', formData)
+        const created = await apiClient.post('/auth/users', sanitizedFormData)
         savedUserId = created?.id ?? created?._id ?? null
       }
 
@@ -327,7 +350,7 @@ export function UserManagement() {
         designation: '',
         departmentId: '',
         isActive: true,
-        userContext: 'NON_CLINICAL',
+        userContext: canManageUserContextRef.current ? 'NON_CLINICAL' : currentAdminContext,
       })
       loadUsers()
     } catch (err) {
@@ -365,11 +388,9 @@ export function UserManagement() {
       departmentId: user.department?._id || user.department?.id || '',
       isActive: user.isActive !== undefined ? user.isActive : true,
       userContext:
-        user.userContext === 'CLINICAL'
-          ? 'CLINICAL'
-          : user.userContext === 'BOTH'
-            ? 'BOTH'
-            : 'NON_CLINICAL',
+        canManageUserContextRef.current
+          ? normalizeUserContext(user.userContext)
+          : normalizeUserContext(authUser?.userContext),
     })
     setShowForm(true)
   }
@@ -430,7 +451,7 @@ export function UserManagement() {
               designation: '',
               departmentId: '',
               isActive: true,
-              userContext: 'NON_CLINICAL',
+              userContext: canManageUserContextRef.current ? 'NON_CLINICAL' : currentAdminContext,
             })
           }}
           className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg shadow-sm transition-colors text-xs sm:text-sm font-medium"
@@ -464,7 +485,7 @@ export function UserManagement() {
           <h3 className="text-lg font-semibold text-slate-800 mb-4">
             {editingUser ? 'Edit User' : 'Create New User'}
           </h3>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form ref={userFormRef} onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Full Name *
@@ -581,7 +602,8 @@ export function UserManagement() {
               </select>
             </div>
 
-            <div>
+            {canManageUserContext && (
+              <div>
               <span className="block text-sm font-medium text-slate-700 mb-2">User type</span>
               <p className="text-xs text-slate-600 mb-2">
                 Default is <strong>non-clinical</strong> for new users and for older accounts that never had this field (same as production).
@@ -620,7 +642,8 @@ export function UserManagement() {
                   Both (clinical and non-clinical workflows)
                 </label>
               </div>
-            </div>
+              </div>
+            )}
 
             <div>
               <div className="flex items-center justify-between mb-1">
