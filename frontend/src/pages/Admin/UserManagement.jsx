@@ -17,6 +17,14 @@ function normalizeUserContext(userContext) {
   return 'NON_CLINICAL'
 }
 
+function userVisibleToViewer(viewerContext, targetUserContext) {
+  const vc = normalizeUserContext(viewerContext)
+  const tc = normalizeUserContext(targetUserContext)
+  if (vc === 'BOTH') return true
+  if (vc === 'CLINICAL') return tc === 'CLINICAL' || tc === 'BOTH'
+  return tc === 'NON_CLINICAL' || tc === 'BOTH'
+}
+
 const ROLE_OPTIONS = [
   { value: '', label: 'All roles' },
   { value: 'SUPER_ADMIN', label: 'Super Admin' },
@@ -413,6 +421,7 @@ export function UserManagement() {
 
   const getUserDeptId = (u) => u.department?._id ?? u.department?.id ?? (typeof u.department === 'string' ? u.department : null)
   const filteredUsers = users.filter((u) => {
+    if (!userVisibleToViewer(authUser?.userContext, u.userContext)) return false
     if (roleFilter && u.role !== roleFilter) return false
     if (departmentFilter) {
       const deptId = getUserDeptId(u)

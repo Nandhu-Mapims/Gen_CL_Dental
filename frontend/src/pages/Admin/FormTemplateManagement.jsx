@@ -1,5 +1,13 @@
 import { useEffect, useState, useMemo } from 'react'
 import { apiClient } from '../../api/client'
+import { useAuth } from '../../context/AuthContext'
+
+function normalizeFormAdminContext(userContext) {
+  if (userContext === 'CLINICAL' || userContext === 'NON_CLINICAL' || userContext === 'BOTH') {
+    return userContext
+  }
+  return 'NON_CLINICAL'
+}
 
 // Build hierarchy: top-level departments and their sub-departments (for form-under-sub-department selection)
 function useDepartmentHierarchy(departments) {
@@ -19,6 +27,12 @@ function useDepartmentHierarchy(departments) {
 }
 
 export function FormTemplateManagement() {
+  const { user: authUser } = useAuth()
+  const adminFormContext = normalizeFormAdminContext(authUser?.userContext)
+  const clinicalOnlyAdmin = adminFormContext === 'CLINICAL'
+  const nonClinicalOnlyAdmin = adminFormContext === 'NON_CLINICAL'
+  const defaultFormContext = clinicalOnlyAdmin ? 'CLINICAL' : 'NON_CLINICAL'
+
   const [departments, setDepartments] = useState([])
   const [forms, setForms] = useState([])
   const [showForm, setShowForm] = useState(false)
@@ -30,9 +44,15 @@ export function FormTemplateManagement() {
     departmentId: '',
     isCommon: false,
     isActive: true,
-    formContext: 'NON_CLINICAL',
+    formContext: defaultFormContext,
   })
   const [loadError, setLoadError] = useState('')
+
+  const visibleForms = useMemo(() => {
+    if (adminFormContext === 'BOTH') return forms
+    if (clinicalOnlyAdmin) return forms.filter((f) => f.formContext === 'CLINICAL')
+    return forms.filter((f) => f.formContext !== 'CLINICAL')
+  }, [forms, adminFormContext, clinicalOnlyAdmin])
 
   const { topLevel, childrenOf } = useDepartmentHierarchy(departments)
 
@@ -72,7 +92,13 @@ export function FormTemplateManagement() {
       departmentIds: formData.departmentId ? [formData.departmentId] : [],
       isCommon: formData.isCommon,
       isActive: formData.isActive,
-      formContext: formData.formContext === 'CLINICAL' ? 'CLINICAL' : 'NON_CLINICAL',
+      formContext: clinicalOnlyAdmin
+        ? 'CLINICAL'
+        : nonClinicalOnlyAdmin
+          ? 'NON_CLINICAL'
+          : formData.formContext === 'CLINICAL'
+            ? 'CLINICAL'
+            : 'NON_CLINICAL',
     }
     try {
       if (editingForm) {
@@ -88,7 +114,7 @@ export function FormTemplateManagement() {
         departmentId: '',
         isCommon: false,
         isActive: true,
-        formContext: 'NON_CLINICAL',
+        formContext: defaultFormContext,
       })
       loadData()
     } catch (err) {
@@ -156,7 +182,7 @@ export function FormTemplateManagement() {
               departmentId: '',
               isCommon: false,
               isActive: true,
-              formContext: 'NON_CLINICAL',
+              formContext: defaultFormContext,
             })
           }}
           className="bg-gradient-to-r from-maroon-600 to-maroon-600 hover:from-maroon-700 hover:to-maroon-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg shadow-sm transition-colors text-xs sm:text-sm font-medium"
@@ -197,6 +223,7 @@ export function FormTemplateManagement() {
             <div>
               <span className="block text-sm font-medium text-slate-700 mb-2">Form type</span>
               <div className="flex flex-col sm:flex-row gap-3">
+                {!clinicalOnlyAdmin && (
                 <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700">
                   <input
                     type="radio"
@@ -207,6 +234,8 @@ export function FormTemplateManagement() {
                   />
                   Non-clinical (operational checklist — location, questions)
                 </label>
+                )}
+                {!nonClinicalOnlyAdmin && (
                 <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700">
                   <input
                     type="radio"
@@ -217,6 +246,7 @@ export function FormTemplateManagement() {
                   />
                   Clinical (staff enter patient UHID and name per submission)
                 </label>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-1">
                 Clinical forms require patient UHID and patient name when auditors submit; these appear on the staff dashboard with department.
@@ -308,14 +338,14 @@ export function FormTemplateManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {forms.length === 0 ? (
+              {visibleForms.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="px-6 py-8 text-center text-slate-500">
                     No form templates created yet. Click "Create New Form" to get started.
                   </td>
                 </tr>
               ) : (
-                forms.map((form, idx) => {
+                visibleForms.map((form, idx) => {
                   const assignedDepts = getFormDepartments(form)
                   return (
                     <tr key={form._id} className="hover:bg-slate-50 transition-colors">
