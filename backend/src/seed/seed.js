@@ -157,10 +157,10 @@ const RUN = async () => {
       email: adminEmail,
       passwordHash: adminHash,
       role: 'SUPER_ADMIN',
-      userContext: 'NON_CLINICAL',
+      userContext: 'BOTH',
       isActive: true,
     });
-    console.log(`   ✅ Created admin: ${adminEmail}`);
+    console.log(`   ✅ Created admin: ${adminEmail} (userContext: BOTH — clinical + non-clinical)`);
 
     // Auditors = MRD staff only; all in Medical Records Department (MRD)
     const mrdDept = deptCodeMap.get('MRD');
@@ -699,6 +699,7 @@ const RUN = async () => {
     console.log(`   Email:    ${adminEmail}`);
     console.log(`   Password: ${adminPassword}`);
     console.log(`   Role:     SUPER_ADMIN (Full Access)`);
+    console.log(`   User type: BOTH (clinical + non-clinical forms)`);
     
     console.log('\n👨‍⚕️ CHIEF DOCTOR ACCOUNTS (for validation & performance tracking):');
     chiefUsers.forEach((chief) => {

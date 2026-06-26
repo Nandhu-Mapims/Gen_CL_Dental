@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../config/env');
 const User = require('../models/User');
 const { ROLES } = require('../models/User');
+const { userContextMongoFilter } = require('../utils/formContextAccess');
 
 /** Stored preference for reporting/filters; missing in DB = non-clinical (legacy). Changing this only updates the user row — never deletes submissions. */
 function apiUserContext(user) {
@@ -258,7 +259,13 @@ exports.listSupervisors = async (req, res) => {
 
 exports.listUsers = async (req, res) => {
   try {
-    const users = await User.find()
+    const viewerId = req.user?.sub || req.user?.id || req.user?._id;
+    let userFilter = {};
+    if (viewerId) {
+      const viewer = await User.findById(viewerId).select('userContext').lean();
+      if (viewer) userFilter = userContextMongoFilter(viewer.userContext);
+    }
+    const users = await User.find(userFilter)
       .select('-passwordHash')
       .populate('department', 'name code')
       .sort({ createdAt: -1 });

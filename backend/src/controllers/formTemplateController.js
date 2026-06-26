@@ -1,6 +1,6 @@
 const FormTemplate = require('../models/FormTemplate');
 const User = require('../models/User');
-const { userMatchesFormContext } = require('../utils/formContextAccess');
+const { userMatchesFormContext, formContextMongoFilter } = require('../utils/formContextAccess');
 
 // Assign users to a form template
 exports.assignUsersToForm = async (req, res) => {
@@ -50,41 +50,35 @@ exports.assignUsersToForm = async (req, res) => {
 exports.getAccessibleForms = async (req, res) => {
   try {
     const userId = req.user?.sub;
-    const userRole = req.user?.role;
 
     if (!userId) {
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
-    if (userRole === 'SUPER_ADMIN') {
-      const forms = await FormTemplate.find({ isActive: true })
+    const user = await User.findById(userId).select('role userContext').lean();
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const contextFilter = formContextMongoFilter(user.userContext);
+
+    if (user.role === 'SUPER_ADMIN') {
+      const forms = await FormTemplate.find({ isActive: true, ...contextFilter })
         .populate('departments', 'name code')
         .populate('assignedUsers', 'name email')
         .sort({ name: 1 });
       return res.json(forms);
     }
 
-    // Get user details
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Admin only allocates: auditors/chiefs see only forms they are explicitly assigned to (or common forms).
-    // Clinical-only / non-clinical-only users never see the other form type (even if mis-assigned).
-    const uc = user.userContext || 'NON_CLINICAL';
+    // Get user details — auditors/chiefs see only assigned or common forms, scoped by userContext.
     const query = {
       isActive: true,
+      ...contextFilter,
       $or: [
-        { assignedUsers: userId }, // Explicitly assigned by admin (cross-audit only)
-        { isCommon: true },       // Common forms for all
+        { assignedUsers: userId },
+        { isCommon: true },
       ],
     };
-    if (uc === 'CLINICAL') {
-      query.formContext = 'CLINICAL';
-    } else if (uc === 'NON_CLINICAL') {
-      query.formContext = 'NON_CLINICAL';
-    }
 
     const forms = await FormTemplate.find(query)
       .populate('departments', 'name code')

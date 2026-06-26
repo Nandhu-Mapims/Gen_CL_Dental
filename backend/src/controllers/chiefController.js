@@ -21,13 +21,11 @@ async function resolveFormContextFilter(req, requestedMode) {
     return { formTemplate: { $in: formTemplateIds } };
   }
 
-  // Default for non-admin chiefs: use user's profile context, if clinical-only or non-clinical-only.
+  // Default: use user's profile context when clinical-only or non-clinical-only (any role, incl. SUPER_ADMIN).
   const userId = req.user?.sub || req.user?.id || req.user?._id;
   if (!userId) return null;
   const currentUser = await User.findById(userId).select('role userContext').lean();
   if (!currentUser) return null;
-  // SUPER_ADMIN should see both types by default for backward compatibility.
-  if (currentUser.role === 'SUPER_ADMIN') return null;
   if (currentUser.userContext === 'CLINICAL' || currentUser.userContext === 'NON_CLINICAL') {
     const formTemplateIds = await FormTemplate
       .find({ formContext: currentUser.userContext, isActive: true })

@@ -2,6 +2,7 @@ const Department = require('../models/Department');
 const AuditSubmission = require('../models/AuditSubmission');
 const User = require('../models/User');
 const FormTemplate = require('../models/FormTemplate');
+const { userContextMongoFilter } = require('../utils/formContextAccess');
 
 exports.createDepartment = async (req, res) => {
   try {
@@ -69,10 +70,18 @@ function resolvedUserContextForAssignment(doc) {
   return 'NON_CLINICAL';
 }
 
-// Get all users with their department information
-exports.getDepartmentUsers = async (_req, res) => {
+// Get all users with their department information (scoped by viewer userContext unless BOTH)
+exports.getDepartmentUsers = async (req, res) => {
   try {
-    const users = await User.find({ isActive: true })
+    const viewerId = req.user?.sub || req.user?.id || req.user?._id;
+    let userFilter = { isActive: true };
+    if (viewerId) {
+      const viewer = await User.findById(viewerId).select('userContext').lean();
+      if (viewer) {
+        userFilter = { isActive: true, ...userContextMongoFilter(viewer.userContext) };
+      }
+    }
+    const users = await User.find(userFilter)
       .populate('department', 'name code')
       .select('name email role designation department userContext')
       .sort({ designation: 1, name: 1 });

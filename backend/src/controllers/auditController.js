@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const AuditSubmission = require('../models/AuditSubmission');
 const FormTemplate = require('../models/FormTemplate');
 const User = require('../models/User');
-const { userMatchesFormContext } = require('../utils/formContextAccess');
+const { userMatchesFormContext, normalizeUserContext } = require('../utils/formContextAccess');
 
 function toObjectId(id) {
   if (!id) return null;
@@ -99,7 +99,10 @@ exports.submitAudit = async (req, res) => {
       }
       if (form) {
         const submitter = await User.findById(userId).select('role userContext').lean();
-        const bypassContext = submitter && ['SUPER_ADMIN', 'QA'].includes(submitter.role);
+        const bypassContext =
+          submitter &&
+          ['SUPER_ADMIN', 'QA'].includes(submitter.role) &&
+          normalizeUserContext(submitter.userContext) === 'BOTH';
         if (submitter && !bypassContext && !userMatchesFormContext(submitter.userContext, form.formContext)) {
           return res.status(400).json({
             message:

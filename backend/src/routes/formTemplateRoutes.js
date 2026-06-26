@@ -3,6 +3,24 @@ const router = express.Router();
 const FormTemplate = require('../models/FormTemplate');
 const formTemplateController = require('../controllers/formTemplateController');
 const auth = require('../middleware/auth');
+const User = require('../models/User');
+const { formContextMongoFilter } = require('../utils/formContextAccess');
+
+async function listFormsForRequester(req, res) {
+  try {
+    const userId = req.user?.sub || req.user?.id || req.user?._id;
+    let contextFilter = {};
+    if (userId) {
+      const user = await User.findById(userId).select('userContext').lean();
+      if (user) contextFilter = formContextMongoFilter(user.userContext);
+    }
+    const forms = await FormTemplate.find(contextFilter).populate('departments');
+    res.json(forms);
+  } catch (err) {
+    console.error('listFormTemplates error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+}
 
 // Admin: create form template (department required for analytics - form belongs to one department)
 router.post('/', auth('SUPER_ADMIN'), async (req, res) => {
@@ -32,16 +50,8 @@ router.post('/', auth('SUPER_ADMIN'), async (req, res) => {
   }
 });
 
-// Admin: list/update/delete templates
-router.get('/', auth(['SUPER_ADMIN', 'QA', 'DEPT_ADMIN', 'SUPERVISOR', 'STAFF']), async (_req, res) => {
-  try {
-    const forms = await FormTemplate.find().populate('departments');
-    res.json(forms);
-  } catch (err) {
-    console.error('listFormTemplates error', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
+// Admin: list/update/delete templates (scoped by viewer userContext unless BOTH)
+router.get('/', auth(['SUPER_ADMIN', 'QA', 'DEPT_ADMIN', 'SUPERVISOR', 'STAFF']), listFormsForRequester);
 
 // Get accessible forms for current user (must be before /:id)
 router.get('/accessible/list', auth(['SUPER_ADMIN', 'QA', 'DEPT_ADMIN', 'SUPERVISOR', 'STAFF']), formTemplateController.getAccessibleForms);
