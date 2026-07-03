@@ -172,7 +172,9 @@ export function FormUserAssignment() {
 
   const handleSelectForm = (form) => {
     setSelectedForm(form)
-    setSelectedUsers(getAssignedUserIds(form))
+    const activeUserIds = new Set(users.map((u) => String(u._id)))
+    const assigned = getAssignedUserIds(form).filter((id) => activeUserIds.has(String(id)))
+    setSelectedUsers(assigned)
     setSearchQuery('')
   }
 
@@ -207,20 +209,50 @@ export function FormUserAssignment() {
       return resolvedUserAssignmentType(u) === userTypeFilter
     })
   }, [assignableUsers, userTypeFilter, scopedNonClinicalOnly, scopedClinicalOnly])
-  const filteredUsers = usersByType.filter((u) => userMatchesSearch(u, searchQuery))
+
+  const filteredUsers = useMemo(() => {
+    const matching = usersByType.filter((u) => userMatchesSearch(u, searchQuery))
+    if (!selectedForm || !selectedUsers.length) return matching
+
+    const matchingIds = new Set(matching.map((u) => String(u._id)))
+    const hiddenAssigned = assignableUsers.filter(
+      (u) =>
+        selectedUsers.some((id) => String(id) === String(u._id)) &&
+        !matchingIds.has(String(u._id)) &&
+        userMatchesSearch(u, searchQuery)
+    )
+    return [...hiddenAssigned, ...matching]
+  }, [usersByType, searchQuery, selectedUsers, assignableUsers, selectedForm])
+
+  const hiddenAssignedCount = useMemo(() => {
+    if (!selectedUsers.length) return 0
+    const visibleIds = new Set(usersByType.map((u) => String(u._id)))
+    return selectedUsers.filter((id) => !visibleIds.has(String(id))).length
+  }, [selectedUsers, usersByType])
 
   const isAssignedToSelectedForm = (userId) =>
-    selectedForm && selectedUsers.some((id) => String(id) === String(userId))
+    selectedUsers.some((id) => String(id) === String(userId))
+
+  const isHiddenByStaffFilter = (userId) => {
+    const idStr = String(userId)
+    if (!isAssignedToSelectedForm(userId)) return false
+    return !usersByType.some((u) => String(u._id) === idStr)
+  }
 
   const getAssignedCount = (form) => getAssignedUserIds(form).length
 
   const handleSave = async () => {
     if (!selectedForm) return
 
+    const activeUserIds = new Set(users.map((u) => String(u._id)))
+    const userIds = [...new Set(selectedUsers.map((id) => String(id)))].filter((id) =>
+      activeUserIds.has(id)
+    )
+
     setSaving(true)
     try {
       await apiClient.put(`/form-templates/${selectedForm._id}/assign-users`, {
-        userIds: selectedUsers,
+        userIds,
       })
       alert('User assignment updated successfully')
       loadData()
@@ -409,6 +441,14 @@ export function FormUserAssignment() {
                   />
                 </div>
 
+                {hiddenAssignedCount > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {hiddenAssignedCount} assigned user{hiddenAssignedCount !== 1 ? 's are' : ' is'} hidden by the
+                    staff filter — shown at the top of the list so you can untick them. Or use{' '}
+                    <strong>Show staff → All user types</strong>.
+                  </div>
+                )}
+
                 {assignableUsers.length === 0 ? (
                   <div className="text-center py-8 text-slate-600">
                     No users found. Create staff or supervisor users first.
@@ -438,6 +478,7 @@ export function FormUserAssignment() {
                                   <div className="space-y-0.5 p-2">
                                     {userList.map((user) => {
                                       const assigned = isAssignedToSelectedForm(user._id)
+                                      const hiddenByFilter = isHiddenByStaffFilter(user._id)
                                       return (
                                         <label
                                           key={user._id}
@@ -465,6 +506,11 @@ export function FormUserAssignment() {
                                               >
                                                 {userTypeShortLabel(resolvedUserAssignmentType(user))}
                                               </span>
+                                              {hiddenByFilter && (
+                                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                                  Hidden by filter
+                                                </span>
+                                              )}
                                             </div>
                                             <div className="text-xs text-slate-600 truncate">{user.email}</div>
                                           </div>
@@ -490,15 +536,24 @@ export function FormUserAssignment() {
                 )}
               </div>
               <div className="p-4 border-t border-slate-200 bg-slate-50">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-3">
                   <div className="text-sm text-slate-600">
                     {selectedUsers.length === 0 ? (
                       <span>No users assigned – only assigned users can access this checklist</span>
                     ) : (
-                      <span>✓ {selectedUsers.length} user(s) assigned</span>
+                      <span>✓ {selectedUsers.length} user(s) selected</span>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
+                    {selectedUsers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUsers([])}
+                        className="px-3 py-2 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Clear all
+                      </button>
+                    )}
                     <button
                       onClick={() => {
                         setSelectedForm(null)

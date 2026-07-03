@@ -1,6 +1,15 @@
 const FormTemplate = require('../models/FormTemplate');
 const User = require('../models/User');
+const mongoose = require('mongoose');
 const { userMatchesFormContext, formContextMongoFilter } = require('../utils/formContextAccess');
+
+function normalizeUserId(id) {
+  if (!id) return null;
+  if (typeof id === 'object' && id._id != null) id = id._id;
+  const str = String(id).trim();
+  if (!str || !mongoose.Types.ObjectId.isValid(str)) return null;
+  return str;
+}
 
 // Assign users to a form template
 exports.assignUsersToForm = async (req, res) => {
@@ -18,12 +27,19 @@ exports.assignUsersToForm = async (req, res) => {
     }
 
     const formCtx = formTemplate.formContext || 'NON_CLINICAL';
+    const uniqueIds = [...new Set(userIds.map(normalizeUserId).filter(Boolean))];
 
-    // Verify all user IDs exist; each user's profile must match this form's type (clinical vs non-clinical)
-    if (userIds.length > 0) {
-      const users = await User.find({ _id: { $in: userIds } }).populate('department', '_id');
-      if (users.length !== userIds.length) {
-        return res.status(400).json({ message: 'One or more user IDs are invalid' });
+    if (uniqueIds.length > 0) {
+      const users = await User.find({ _id: { $in: uniqueIds }, isActive: true }).populate(
+        'department',
+        '_id'
+      );
+      if (users.length !== uniqueIds.length) {
+        const found = new Set(users.map((u) => String(u._id)));
+        const missing = uniqueIds.filter((uid) => !found.has(String(uid)));
+        return res.status(400).json({
+          message: `Invalid or inactive user ID(s): ${missing.join(', ')}. Remove stale assignments and pick active users only.`,
+        });
       }
       const mismatched = users.filter((u) => !userMatchesFormContext(u.userContext, formCtx));
       if (mismatched.length > 0) {
@@ -33,7 +49,7 @@ exports.assignUsersToForm = async (req, res) => {
       }
     }
 
-    formTemplate.assignedUsers = userIds;
+    formTemplate.assignedUsers = uniqueIds;
     await formTemplate.save();
 
     await formTemplate.populate('assignedUsers', 'name email department');
