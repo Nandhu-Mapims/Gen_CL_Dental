@@ -404,7 +404,7 @@ export function UserManagement() {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this user?')) return
+    if (!confirm('Deactivate this user? They will be hidden from lists. To remove permanently, open /admin/users/delete')) return
     try {
       await apiClient.delete(`/auth/users/${id}`)
       loadUsers()
@@ -421,6 +421,7 @@ export function UserManagement() {
 
   const getUserDeptId = (u) => u.department?._id ?? u.department?.id ?? (typeof u.department === 'string' ? u.department : null)
   const filteredUsers = users.filter((u) => {
+    if (u.isActive === false) return false
     if (!userVisibleToViewer(authUser?.userContext, u.userContext)) return false
     if (roleFilter && u.role !== roleFilter) return false
     if (departmentFilter) {
@@ -1147,7 +1148,7 @@ export function UserManagement() {
                         onClick={() => handleDelete(user._id)}
                         className="text-red-600 hover:text-red-700 text-xs lg:text-sm font-medium px-2 lg:px-3 py-1 rounded hover:bg-red-50 transition-colors"
                       >
-                        Delete
+                        Deactivate
                       </button>
                     </div>
                   </td>
@@ -1258,7 +1259,7 @@ export function UserManagement() {
                   onClick={() => handleDelete(user._id)}
                   className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
                 >
-                  Delete
+                  Deactivate
                 </button>
               </div>
             </div>

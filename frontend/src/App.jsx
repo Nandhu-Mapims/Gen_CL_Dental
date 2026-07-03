@@ -27,6 +27,7 @@ import { Form } from './pages/User/Form'
 import { UserManual } from './pages/User/UserManual'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { HomeRedirect } from './components/HomeRedirect'
+import { PurgeListPage } from './pages/Admin/PurgeListPage'
 
 function App() {
   return (
@@ -60,6 +61,9 @@ function App() {
           <Route path="/admin/master-data" element={<ProtectedRoute roles={['SUPER_ADMIN']}><MasterDataManagement /></ProtectedRoute>} />
           <Route path="/admin/ward-list" element={<ProtectedRoute roles={['SUPER_ADMIN']}><WardListManagement /></ProtectedRoute>} />
           <Route path="/admin/unit-list" element={<ProtectedRoute roles={['SUPER_ADMIN']}><UnitListManagement /></ProtectedRoute>} />
+          <Route path="/admin/forms/delete" element={<ProtectedRoute roles={['SUPER_ADMIN']}><PurgeListPage resourceType="form" /></ProtectedRoute>} />
+          <Route path="/admin/users/delete" element={<ProtectedRoute roles={['SUPER_ADMIN']}><PurgeListPage resourceType="user" /></ProtectedRoute>} />
+          <Route path="/admin/departments/delete" element={<ProtectedRoute roles={['SUPER_ADMIN']}><PurgeListPage resourceType="department" /></ProtectedRoute>} />
 
           <Route path="/form/:formTemplateId" element={<ProtectedRoute roles={['SUPER_ADMIN', 'STAFF', 'SUPERVISOR', 'DEPT_ADMIN']}><Form /></ProtectedRoute>} />
           <Route path="/user-manual" element={<ProtectedRoute roles={['SUPER_ADMIN', 'STAFF', 'SUPERVISOR', 'DEPT_ADMIN', 'QA']}><UserManual /></ProtectedRoute>} />

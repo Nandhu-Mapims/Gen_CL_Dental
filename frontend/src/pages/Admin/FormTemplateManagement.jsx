@@ -49,9 +49,10 @@ export function FormTemplateManagement() {
   const [loadError, setLoadError] = useState('')
 
   const visibleForms = useMemo(() => {
-    if (adminFormContext === 'BOTH') return forms
-    if (clinicalOnlyAdmin) return forms.filter((f) => f.formContext === 'CLINICAL')
-    return forms.filter((f) => f.formContext !== 'CLINICAL')
+    const activeOnly = forms.filter((f) => f.isActive !== false)
+    if (adminFormContext === 'BOTH') return activeOnly
+    if (clinicalOnlyAdmin) return activeOnly.filter((f) => f.formContext === 'CLINICAL')
+    return activeOnly.filter((f) => f.formContext !== 'CLINICAL')
   }, [forms, adminFormContext, clinicalOnlyAdmin])
 
   const { topLevel, childrenOf } = useDepartmentHierarchy(departments)
@@ -403,7 +404,7 @@ export function FormTemplateManagement() {
                             onClick={() => handleDeleteClick(form._id)}
                             className="text-red-600 hover:text-red-700 text-sm font-medium px-3 py-1 rounded hover:bg-red-50 transition-colors"
                           >
-                            Delete
+                            Deactivate
                           </button>
                         </div>
                       </td>
@@ -426,7 +427,7 @@ export function FormTemplateManagement() {
           />
           <div className="relative bg-white rounded-xl shadow-xl border border-slate-200 p-5 w-full max-w-sm">
             <p className="text-slate-800 font-medium text-center mb-5">
-              Are you sure you want to delete this form template?
+              Deactivate this form template? It will be hidden from lists. To remove permanently, open /admin/forms/delete
             </p>
             <div className="flex gap-3 justify-center">
               <button
@@ -441,7 +442,7 @@ export function FormTemplateManagement() {
                 onClick={handleDeleteConfirm}
                 className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition-colors"
               >
-                Delete
+                Deactivate
               </button>
             </div>
           </div>

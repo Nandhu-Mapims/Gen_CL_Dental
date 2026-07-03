@@ -101,6 +101,7 @@ app.use('/api/chief-doctors', require('./routes/chiefDoctorRoutes'));
 app.use('/api/chief', require('./routes/chiefRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/master-data', require('./routes/masterDataRoutes'));
+app.use('/api/admin/purge', require('./routes/purgeRoutes'));
 
 // Serve frontend in production or when running on Render
 if (config.NODE_ENV === 'production' || process.env.RENDER || process.env.IS_PULL_REQUEST) {
