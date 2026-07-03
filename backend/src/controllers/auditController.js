@@ -109,6 +109,22 @@ exports.submitAudit = async (req, res) => {
               'Your user type does not match this form. Clinical-only users may use clinical forms only; non-clinical-only users may use non-clinical forms only (or ask for a “both” profile).',
           });
         }
+        if (assignedToUserId) {
+          const supervisor = await User.findById(assignedToUserId)
+            .select('role userContext isActive name')
+            .lean();
+          if (!supervisor || supervisor.role !== 'SUPERVISOR' || supervisor.isActive === false) {
+            return res.status(400).json({ message: 'Selected supervisor is not valid.' });
+          }
+          if (!userMatchesFormContext(supervisor.userContext, form.formContext)) {
+            return res.status(400).json({
+              message:
+                form.formContext === 'CLINICAL'
+                  ? 'Selected supervisor is not a clinical supervisor. Choose a supervisor with clinical or both user type.'
+                  : 'Selected supervisor is not a non-clinical supervisor. Choose a supervisor with non-clinical or both user type.',
+            });
+          }
+        }
       }
     }
 

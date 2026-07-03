@@ -368,7 +368,8 @@ export function Form() {
         setPatientName('')
 
         try {
-          const list = await apiClient.get('/auth/users/supervisors')
+          const fc = form?.formContext === 'CLINICAL' ? 'CLINICAL' : 'NON_CLINICAL'
+          const list = await apiClient.get(`/auth/users/supervisors?formContext=${fc}`)
           setSupervisors(Array.isArray(list) ? list : [])
         } catch {
           setSupervisors([])

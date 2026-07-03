@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../config/env');
 const User = require('../models/User');
 const { ROLES } = require('../models/User');
-const { userContextMongoFilter } = require('../utils/formContextAccess');
+const { userContextMongoFilter, userMatchesFormContext, userVisibleToViewer } = require('../utils/formContextAccess');
 
 /** Stored preference for reporting/filters; missing in DB = non-clinical (legacy). Changing this only updates the user row — never deletes submissions. */
 function apiUserContext(user) {
@@ -246,10 +246,35 @@ exports.login = async (req, res) => {
 // List users with role SUPERVISOR (for reviewer dropdown)
 exports.listSupervisors = async (req, res) => {
   try {
-    const supervisors = await User.find({ role: 'SUPERVISOR', isActive: true })
-      .select('_id name designation department')
+    const { formContext } = req.query;
+    const viewerId = req.user?.sub || req.user?.id || req.user?._id;
+    let viewer = null;
+    if (viewerId) {
+      viewer = await User.findById(viewerId).select('userContext role').lean();
+    }
+
+    let supervisors = await User.find({ role: 'SUPERVISOR', isActive: true })
+      .select('_id name designation department userContext')
       .populate('department', 'name code')
-      .sort({ name: 1 });
+      .sort({ name: 1 })
+      .lean();
+
+    const effectiveFormContext =
+      formContext === 'CLINICAL' || formContext === 'NON_CLINICAL' ? formContext : null;
+
+    if (effectiveFormContext) {
+      supervisors = supervisors.filter((s) =>
+        userMatchesFormContext(s.userContext, effectiveFormContext)
+      );
+    }
+
+    // Staff auditors only see supervisors matching their own clinical / non-clinical profile.
+    if (viewer?.role === 'STAFF') {
+      supervisors = supervisors.filter((s) =>
+        userVisibleToViewer(viewer.userContext, s.userContext)
+      );
+    }
+
     res.json(supervisors);
   } catch (err) {
     console.error('listSupervisors error', err);
