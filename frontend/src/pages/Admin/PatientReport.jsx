@@ -132,6 +132,7 @@ export function PatientReport() {
   const isClinicalReport = effectiveFormContext === 'CLINICAL'
 
   const [departments, setDepartments] = useState([])
+  const [auditorDepartments, setAuditorDepartments] = useState([])
   const [locationsList, setLocationsList] = useState([])
   const [departmentId, setDepartmentId] = useState('')
   const [fromDate, setFromDate] = useState('')
@@ -158,6 +159,36 @@ export function PatientReport() {
       setLocationsList(locs)
     })
   }, [])
+
+  useEffect(() => {
+    if (!clinicalStaffReportScope) {
+      setAuditorDepartments([])
+      return
+    }
+    apiClient
+      .get('/form-templates/accessible/list')
+      .then((forms) => {
+        const list = Array.isArray(forms) ? forms : []
+        const deptMap = new Map()
+        list.forEach((form) => {
+          if (form.formContext !== 'CLINICAL') return
+          ;(form.departments || []).forEach((d) => {
+            if (!d) return
+            const id = d._id || d
+            if (id && !deptMap.has(String(id))) {
+              deptMap.set(String(id), typeof d === 'object' ? d : { _id: id, name: String(id) })
+            }
+          })
+        })
+        setAuditorDepartments(
+          Array.from(deptMap.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        )
+      })
+      .catch(() => setAuditorDepartments([]))
+  }, [clinicalStaffReportScope])
+
+  const reportDepartmentOptions = clinicalStaffReportScope ? auditorDepartments : departments
+  const showDepartmentColumn = isClinicalReport || clinicalStaffReportScope
 
   // Build report data from a list of submissions (operational context only)
   const buildReportDataFromSubmissions = (submissions) => {
@@ -250,7 +281,7 @@ export function PatientReport() {
   // Load submissions and report summary by filters (date range, department, location), then group by session and filter by status
   const loadSessions = async (e) => {
     e?.preventDefault()
-    if (!departmentId) {
+    if (!departmentId && !clinicalStaffReportScope) {
       setError('Please select a department')
       return
     }
@@ -261,7 +292,8 @@ export function PatientReport() {
     setReportSummary(null)
     setSelectedSessionId(null)
     try {
-      const params = new URLSearchParams({ departmentId, limit: '1000' })
+      const params = new URLSearchParams({ limit: '1000' })
+      if (departmentId) params.set('departmentId', departmentId)
       if (fromDate) params.set('fromDate', fromDate)
       if (toDate) params.set('toDate', toDate)
       if (effectiveFormContext) params.set('formContext', effectiveFormContext)
@@ -312,6 +344,9 @@ export function PatientReport() {
             submittedAt: subAt,
             formName: s.formTemplate?.name || s.formTemplate || 'Unknown',
             submittedBy: s.submittedBy?.name || s.submittedBy?.email || 'Unknown',
+            departmentName:
+              s.department?.name ||
+              (typeof s.department === 'string' ? s.department : '—'),
             description: isClinicalReport
               ? patientLabel
               : (s.location && String(s.location).trim()) ? String(s.location).trim() : 'General',
@@ -838,7 +873,7 @@ export function PatientReport() {
               <span>
                 {clinicalStaffReportScope ? (
                   <>
-                    Select an <strong>audited department</strong> (the service the checklist applies to) and click <strong>Load</strong>. You can filter by date range.
+                    Choose <strong>All departments</strong> to see your clinical submissions across every department mapped to your forms, or pick one department. Then click <strong>Load</strong>.
                   </>
                 ) : (
                   <>
@@ -867,10 +902,15 @@ export function PatientReport() {
                     value={departmentId}
                     onChange={(e) => setDepartmentId(e.target.value)}
                     className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-base focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
-                    required
+                    required={!clinicalStaffReportScope}
                   >
-                    <option value="">Select department</option>
-                    {departments.map((d) => (
+                    {clinicalStaffReportScope && (
+                      <option value="">All departments (mapped to your forms)</option>
+                    )}
+                    {!clinicalStaffReportScope && (
+                      <option value="">Select department</option>
+                    )}
+                    {reportDepartmentOptions.map((d) => (
                       <option key={d._id} value={d._id}>{d.name}</option>
                     ))}
                   </select>
@@ -1096,6 +1136,9 @@ export function PatientReport() {
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50">
                         <th className="text-left p-3 font-semibold text-slate-700">Date / Time</th>
+                        {showDepartmentColumn && (
+                          <th className="text-left p-3 font-semibold text-slate-700">Department</th>
+                        )}
                         <th className="text-left p-3 font-semibold text-slate-700">Form</th>
                         <th className="text-left p-3 font-semibold text-slate-700">Submitted by</th>
                         <th className="text-left p-3 font-semibold text-slate-700">Description</th>
@@ -1107,6 +1150,9 @@ export function PatientReport() {
                       {sessions.map((s, idx) => (
                         <tr key={idx} className="border-b border-slate-100 hover:bg-maroon-50/50">
                           <td className="p-3">{s.submittedAt ? new Date(s.submittedAt).toLocaleString() : 'N/A'}</td>
+                          {showDepartmentColumn && (
+                            <td className="p-3">{s.departmentName || '—'}</td>
+                          )}
                           <td className="p-3">{s.formName}</td>
                           <td className="p-3">{s.submittedBy}</td>
                           <td className="p-3">{s.description || '—'}</td>

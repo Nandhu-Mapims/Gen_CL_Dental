@@ -42,6 +42,7 @@ export function FormTemplateManagement() {
     name: '',
     description: '',
     departmentId: '',
+    departmentIds: [],
     isCommon: false,
     isActive: true,
     formContext: defaultFormContext,
@@ -81,16 +82,41 @@ export function FormTemplateManagement() {
     loadData()
   }, [])
 
+  const isClinicalFormData =
+    clinicalOnlyAdmin || (formData.formContext === 'CLINICAL' && !nonClinicalOnlyAdmin)
+
+  const toggleFormDepartment = (deptId) => {
+    const idStr = String(deptId)
+    setFormData((prev) => {
+      const has = prev.departmentIds.some((id) => String(id) === idStr)
+      return {
+        ...prev,
+        departmentIds: has
+          ? prev.departmentIds.filter((id) => String(id) !== idStr)
+          : [...prev.departmentIds, deptId],
+      }
+    })
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!formData.departmentId) {
-      alert('Please select the department this form belongs to (required for analytics).')
+    const deptIds = isClinicalFormData
+      ? formData.departmentIds
+      : formData.departmentId
+        ? [formData.departmentId]
+        : []
+    if (!deptIds.length) {
+      alert(
+        isClinicalFormData
+          ? 'Select at least one department for this clinical form.'
+          : 'Please select the department this form belongs to (required for analytics).'
+      )
       return
     }
     const payload = {
       name: formData.name,
       description: formData.description,
-      departmentIds: formData.departmentId ? [formData.departmentId] : [],
+      departmentIds: deptIds,
       isCommon: formData.isCommon,
       isActive: formData.isActive,
       formContext: clinicalOnlyAdmin
@@ -113,6 +139,7 @@ export function FormTemplateManagement() {
         name: '',
         description: '',
         departmentId: '',
+        departmentIds: [],
         isCommon: false,
         isActive: true,
         formContext: defaultFormContext,
@@ -127,12 +154,15 @@ export function FormTemplateManagement() {
 
   const handleEdit = (form) => {
     setEditingForm(form)
-    const firstDept = form.departments?.[0]
-    const departmentId = firstDept ? (typeof firstDept === 'object' ? firstDept._id : firstDept) : ''
+    const deptIds = (form.departments || []).map((d) =>
+      typeof d === 'object' ? d._id : d
+    )
+    const isClinical = form.formContext === 'CLINICAL'
     setFormData({
       name: form.name,
       description: form.description || '',
-      departmentId: departmentId || '',
+      departmentId: isClinical ? '' : deptIds[0] || '',
+      departmentIds: isClinical ? deptIds : [],
       isCommon: form.isCommon || false,
       isActive: form.isActive !== undefined ? form.isActive : true,
       formContext: form.formContext === 'CLINICAL' ? 'CLINICAL' : 'NON_CLINICAL',
@@ -181,6 +211,7 @@ export function FormTemplateManagement() {
               name: '',
               description: '',
               departmentId: '',
+              departmentIds: [],
               isCommon: false,
               isActive: true,
               formContext: defaultFormContext,
@@ -256,38 +287,71 @@ export function FormTemplateManagement() {
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                Form belongs to department or sub-department <span className="text-red-500">*</span>
+                {isClinicalFormData ? (
+                  <>Departments mapped to this clinical form <span className="text-red-500">*</span></>
+                ) : (
+                  <>Form belongs to department or sub-department <span className="text-red-500">*</span></>
+                )}
               </label>
-              <select
-                required
-                value={formData.departmentId}
-                onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
-              >
-                <option value="">Select overall department or specific sub-department</option>
-                {topLevel
-                  .filter((d) => d.isActive !== false)
-                  .map((parent) => {
-                    const subs = childrenOf[String(parent._id)] ?? []
-                    return (
-                      <optgroup key={parent._id} label={parent.name}>
-                        <option value={parent._id}>
-                          {parent.name} ({parent.code}) — overall
-                        </option>
-                        {subs
-                          .filter((s) => s.isActive !== false)
-                          .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-                          .map((sub) => (
-                            <option key={sub._id} value={sub._id}>
-                              └ {sub.name} ({sub.code})
-                            </option>
-                          ))}
-                      </optgroup>
-                    )
-                  })}
-              </select>
+              {isClinicalFormData ? (
+                <div className="border border-slate-300 rounded-lg p-3 max-h-56 overflow-y-auto space-y-2 bg-slate-50">
+                  <p className="text-xs text-slate-600 mb-2">
+                    Tick every department auditors may select when submitting this clinical checklist.
+                    {formData.departmentIds.length > 0 && (
+                      <span className="font-medium text-slate-800"> {formData.departmentIds.length} selected.</span>
+                    )}
+                  </p>
+                  {topLevel
+                    .filter((d) => d.isActive !== false)
+                    .map((parent) => (
+                      <label
+                        key={parent._id}
+                        className="flex items-center gap-2 text-sm text-slate-800 cursor-pointer hover:bg-white rounded px-1 py-0.5"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.departmentIds.some((id) => String(id) === String(parent._id))}
+                          onChange={() => toggleFormDepartment(parent._id)}
+                          className="w-4 h-4 text-maroon-600 border-slate-300 rounded focus:ring-maroon-500"
+                        />
+                        <span>{parent.name} ({parent.code})</span>
+                      </label>
+                    ))}
+                </div>
+              ) : (
+                <select
+                  required
+                  value={formData.departmentId}
+                  onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500"
+                >
+                  <option value="">Select overall department or specific sub-department</option>
+                  {topLevel
+                    .filter((d) => d.isActive !== false)
+                    .map((parent) => {
+                      const subs = childrenOf[String(parent._id)] ?? []
+                      return (
+                        <optgroup key={parent._id} label={parent.name}>
+                          <option value={parent._id}>
+                            {parent.name} ({parent.code}) — overall
+                          </option>
+                          {subs
+                            .filter((s) => s.isActive !== false)
+                            .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                            .map((sub) => (
+                              <option key={sub._id} value={sub._id}>
+                                └ {sub.name} ({sub.code})
+                              </option>
+                            ))}
+                        </optgroup>
+                      )
+                    })}
+                </select>
+              )}
               <p className="text-xs text-slate-500 mt-1">
-                Create the form under the overall department or a specific sub-department. User assignment in Configure → Assign Forms.
+                {isClinicalFormData
+                  ? 'Auditors pick one of these departments per submission. User assignment: Configure → Assign Forms.'
+                  : 'Create the form under the overall department or a specific sub-department. User assignment in Configure → Assign Forms.'}
               </p>
             </div>
 
